@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import type { ChunkRecordInput, IndexWriter, RepoRecord } from "@llm-mem/core";
+import type { ChunkRecordInput, IndexWriter, RepoRecord, SymbolRecordInput } from "@llm-mem/core";
 import { estimateTokens } from "@llm-mem/core";
 import { createDefaultIgnoreRules, redactSecrets, type IgnoreRules } from "@llm-mem/security";
 import { detectLanguage, isLikelyText } from "./language.js";
@@ -82,6 +82,7 @@ export class RepositoryIndexer {
       seenPaths.push(normalizedPath);
       const chunks = this.chunkFile(repo.id, file.id, normalizedPath, redacted.text, contentHash);
       await this.writer.replaceFileChunks(file.id, chunks);
+      await this.writer.replaceFileSymbols?.(file.id, extractSymbols(repo.id, file.id, normalizedPath, redacted.text));
       indexedFiles += 1;
       chunkCount += chunks.length;
     }
@@ -188,3 +189,108 @@ function hashText(input: string): string {
 function normalizePath(input: string): string {
   return input.split(path.sep).join("/").replace(/^\.\//, "");
 }
+
+function extractSymbols(repoId: string, fileId: string, filePath: string, text: string): SymbolRecordInput[] {
+  if (!/\.(cjs|cts|js|jsx|mjs|mts|ts|tsx)$/.test(filePath)) {
+    return [];
+  }
+
+  const lines = text.split(/\r?\n/);
+  const symbols: SymbolRecordInput[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const parsed = parseSymbolLine(line);
+    if (parsed === undefined) {
+      continue;
+    }
+
+    const startLine = index + 1;
+    symbols.push({
+      repoId,
+      fileId,
+      name: parsed.name,
+      kind: parsed.kind,
+      startLine,
+      endLine: findSymbolEndLine(lines, index),
+      signature: line.trim()
+    });
+  }
+
+  return symbols;
+}
+
+function parseSymbolLine(line: string): { name: string; kind: string } | undefined {
+  const trimmed = line.trim();
+  if (trimmed.startsWith("//") || trimmed.startsWith("*")) {
+    return undefined;
+  }
+
+  const declarations = [
+    { kind: "class", pattern: /^(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)/ },
+    { kind: "interface", pattern: /^(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)/ },
+    { kind: "type", pattern: /^(?:export\s+)?type\s+([A-Za-z_$][\w$]*)\b/ },
+    { kind: "enum", pattern: /^(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)/ },
+    { kind: "function", pattern: /^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/ },
+    { kind: "const", pattern: /^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b/ }
+  ];
+
+  for (const declaration of declarations) {
+    const match = declaration.pattern.exec(trimmed);
+    if (match?.[1]) {
+      return { name: match[1], kind: declaration.kind };
+    }
+  }
+
+  const methodMatch = /^(?:public\s+|private\s+|protected\s+|static\s+|async\s+|readonly\s+)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::[^{]+)?\{?/.exec(
+    trimmed
+  );
+  const methodName = methodMatch?.[1];
+  if (methodName && !RESERVED_METHOD_WORDS.has(methodName)) {
+    return { name: methodName, kind: "method" };
+  }
+
+  return undefined;
+}
+
+function findSymbolEndLine(lines: string[], startIndex: number): number {
+  const start = lines[startIndex] ?? "";
+  if (!start.includes("{")) {
+    return startIndex + 1;
+  }
+
+  let depth = 0;
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const line = stripLineComment(lines[index] ?? "");
+    for (const char of line) {
+      if (char === "{") {
+        depth += 1;
+      } else if (char === "}") {
+        depth -= 1;
+        if (depth <= 0) {
+          return index + 1;
+        }
+      }
+    }
+  }
+
+  return Math.min(lines.length, startIndex + 80);
+}
+
+function stripLineComment(line: string): string {
+  const commentIndex = line.indexOf("//");
+  return commentIndex === -1 ? line : line.slice(0, commentIndex);
+}
+
+const RESERVED_METHOD_WORDS = new Set([
+  "if",
+  "for",
+  "while",
+  "switch",
+  "catch",
+  "function",
+  "return",
+  "describe",
+  "it",
+  "test",
+  "expect"
+]);

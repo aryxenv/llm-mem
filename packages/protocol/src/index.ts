@@ -16,7 +16,22 @@ export const ContextPackRequestSchema = z.object({
   repoId: z.string().optional(),
   workingDirectory: z.string().optional(),
   constraints: z.array(z.string()).optional(),
-  maxTokens: z.number().int().min(64).default(12000)
+  maxTokens: z.number().int().min(64).default(4000)
+});
+
+export const ContextMapRequestSchema = z.object({
+  task: z.string().min(1),
+  repoId: z.string().optional(),
+  workingDirectory: z.string().optional(),
+  constraints: z.array(z.string()).optional(),
+  maxCandidates: z.number().int().min(1).max(24).default(8)
+});
+
+export const ContextSnippetRequestSchema = z.object({
+  expansionId: z.string().min(1),
+  repoId: z.string().optional(),
+  workingDirectory: z.string().optional(),
+  maxTokens: z.number().int().min(64).default(1200)
 });
 
 export const MemoryWriteSchema = z.object({
@@ -45,6 +60,8 @@ export const WorktreeCreateSchema = z.object({
 });
 
 export type ContextPackRequest = z.infer<typeof ContextPackRequestSchema>;
+export type ContextMapRequest = z.infer<typeof ContextMapRequestSchema>;
+export type ContextSnippetRequest = z.infer<typeof ContextSnippetRequestSchema>;
 export type MemoryWrite = z.infer<typeof MemoryWriteSchema>;
 export type TaskCreate = z.infer<typeof TaskCreateSchema>;
 export type WorktreeCreate = z.infer<typeof WorktreeCreateSchema>;

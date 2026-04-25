@@ -94,7 +94,7 @@ program
   .argument("<task>", "Task to compile context for.")
   .description("Build a proof-carrying context pack.")
   .option("--db <path>", "SQLite database path")
-  .option("--budget <tokens>", "Maximum token budget", "12000")
+  .option("--budget <tokens>", "Maximum token budget", "4000")
   .action(async (task: string, options: { db?: string; budget: string }) => {
     const rootPath = process.cwd();
     const store = openStore(rootPath, options.db);
@@ -179,7 +179,7 @@ copilotCommand
   .command("run")
   .argument("<task>", "Task prompt for Copilot CLI.")
   .option("--db <path>", "SQLite database path")
-  .option("--budget <tokens>", "Maximum context-pack token budget", "8000")
+  .option("--budget <tokens>", "Maximum context-pack token budget", "4000")
   .option("--model <model>", "Copilot CLI model", "gpt-5.5")
   .option("--executable <path>", "Copilot CLI executable", "copilot")
   .option("--dry-run", "Write prompt artifacts but do not invoke Copilot CLI")
@@ -235,7 +235,7 @@ benchmarkCommand
   .argument("<suite>", "Benchmark suite JSON file.")
   .option("--db <path>", "SQLite database path")
   .option("--variant <variant...>", "Variant(s): baseline-copilot, llm-mem-context")
-  .option("--budget <tokens>", "Maximum context-pack token budget", "8000")
+  .option("--budget <tokens>", "Maximum context-pack token budget", "4000")
   .option("--model <model>", "Copilot CLI model", "gpt-5.5")
   .option("--executable <path>", "Copilot CLI executable", "copilot")
   .option("--repeat <count>", "Number of times to repeat each task/variant", "1")

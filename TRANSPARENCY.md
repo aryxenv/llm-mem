@@ -1,19 +1,41 @@
 # Benchmark transparency
 
-This document explains the first published live benchmark result in `README.md`.
+This document explains the live Copilot CLI benchmark result published in `README.md`.
 
-## Headline
+## Current headline
 
-In this benchmark, `llm-mem` did **not** reduce Copilot CLI token usage.
+After retrieval and prompt improvements, the same live benchmark that previously failed now shows **22.7% fewer mean Copilot tokens** for `llm-mem-context` on this task.
 
 Across five repeated live runs per variant:
 
-- `baseline-copilot` averaged **243,955.2** total Copilot tokens.
-- `llm-mem-context` averaged **302,358.8** total Copilot tokens.
-- Token savings were **-23.9%**, meaning `llm-mem-context` used **23.9% more** tokens than baseline.
+- `baseline-copilot` averaged **229,377.8** total Copilot tokens.
+- `llm-mem-context` averaged **177,201.0** total Copilot tokens.
+- Mean token savings were **22.7%**.
 - Both variants completed successfully in **5/5** runs.
+- `llm-mem-context` context recall for the gold file improved to **1.0**.
 
-This is a negative benchmark result. It is included because token-saving claims should be measured and falsifiable.
+This is still one local read-only benchmark, not universal proof of product value. It does show that the original failure mode was fixable: the context pack now cites the intended implementation file and is much smaller.
+
+## What changed after the failed run
+
+The first published run showed a **23.9% token regression** because the context pack added prompt weight while missing the intended gold file, `packages/core/src/context-compiler.ts`.
+
+The recovery changes targeted that root cause:
+
+- Added TypeScript/JavaScript symbol indexing.
+- Added identifier normalization such as `ContextCompiler` -> `context compiler` -> `context-compiler`.
+- Added symbol/path/chunk hybrid retrieval scoring.
+- Added match reasons and token-cost-aware candidates.
+- Added compact explicit prompt rendering that removes duplicate task/citation/debug metadata.
+- Lowered default context budgets from 8k/12k to 4k.
+- Added MCP `context_map` and `snippet` tools for a map-first JIT flow, though this benchmark still measures explicit context injection.
+
+Dry-run recall before the final live rerun:
+
+| Variant | Prompt estimate | Context estimate | Gold-file recall |
+| --- | ---: | ---: | ---: |
+| `baseline-copilot` | 86 | 0 | 0.00 |
+| `llm-mem-context` | 2,606 | 2,196 | 1.00 |
 
 ## What was measured
 
@@ -36,32 +58,16 @@ Benchmark suite:
 evals\benchmarks\context-compiler-live.json
 ```
 
-## Exact command
-
-Run from the repository root:
+Exact command:
 
 ```powershell
 node apps\cli\dist\index.js benchmark run evals\benchmarks\context-compiler-live.json --repeat 5 --token-source otel --no-worktree --model gpt-5.5
 ```
 
-The benchmark ran **10 live Copilot CLI sessions** total:
+Each benchmark run executes **10 live Copilot CLI sessions** total:
 
 - 5 `baseline-copilot`
 - 5 `llm-mem-context`
-
-## Environment
-
-| Field | Value |
-| --- | --- |
-| Date | 2026-04-25 |
-| OS | Windows_NT |
-| Copilot CLI version | 1.0.36 |
-| Model | `gpt-5.5` |
-| Token source | Copilot CLI OpenTelemetry JSONL |
-| Report ID | `b5d02f89-2fce-4ba6-bcc0-a563567f9174` |
-| Local artifact directory | `.llm-mem\benchmarks\3a7fe861-a770-4255-b3a5-b766a383ce87` |
-
-Raw artifacts are under `.llm-mem\benchmarks\...`, which is intentionally gitignored. The measured values are copied below so the published result is reviewable without those local artifacts.
 
 ## Token source
 
@@ -73,7 +79,7 @@ $env:COPILOT_OTEL_EXPORTER_TYPE = "file"
 $env:COPILOT_OTEL_FILE_EXPORTER_PATH = "<run-artifact>\copilot-otel.jsonl"
 ```
 
-The parser recorded token and cost attributes from OTel `chat` spans:
+The parser records token and cost attributes from OTel `chat` spans:
 
 - `gen_ai.usage.input_tokens`
 - `gen_ai.usage.output_tokens`
@@ -94,15 +100,70 @@ Reasoning output tokens are reported separately in per-run artifacts but are not
 savings = (baseline_mean_total_tokens - llm_mem_mean_total_tokens) / baseline_mean_total_tokens * 100
 ```
 
-For this run:
+For the improved run:
 
 ```text
-(243,955.2 - 302,358.8) / 243,955.2 * 100 = -23.9403%
+(229,377.8 - 177,201.0) / 229,377.8 * 100 = 22.7471%
 ```
 
-So the result is reported as **-23.9% token savings**, or a **23.9% token regression**.
+So the current result is reported as **22.7% mean token savings**.
 
-## Per-run results
+## Improved run
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-04-25 |
+| OS | Windows_NT |
+| Copilot CLI version | 1.0.36 |
+| Model | `gpt-5.5` |
+| Token source | Copilot CLI OpenTelemetry JSONL |
+| Report ID | `95b9b740-a98a-4141-bfaa-453d839e3212` |
+| Local artifact directory | `.llm-mem\benchmarks\ec9b1d14-4056-41b3-a507-33b8f1c60da7` |
+
+Per-run values:
+
+| Repetition | Variant | Success | Total tokens | Input tokens | Output tokens | Prompt estimate | Context estimate | Context recall | Duration ms |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | `baseline-copilot` | yes | 311,484 | 307,085 | 4,399 | 86 | 0 | 0.00 | 84,613 |
+| 1 | `llm-mem-context` | yes | 140,700 | 138,454 | 2,246 | 2,606 | 2,196 | 1.00 | 50,489 |
+| 2 | `baseline-copilot` | yes | 202,816 | 199,444 | 3,372 | 86 | 0 | 0.00 | 78,610 |
+| 2 | `llm-mem-context` | yes | 205,527 | 202,183 | 3,344 | 2,606 | 2,196 | 1.00 | 67,683 |
+| 3 | `baseline-copilot` | yes | 283,694 | 279,776 | 3,918 | 86 | 0 | 0.00 | 72,303 |
+| 3 | `llm-mem-context` | yes | 140,889 | 138,715 | 2,174 | 2,606 | 2,196 | 1.00 | 76,609 |
+| 4 | `baseline-copilot` | yes | 172,293 | 169,478 | 2,815 | 86 | 0 | 0.00 | 75,664 |
+| 4 | `llm-mem-context` | yes | 187,698 | 184,764 | 2,934 | 2,606 | 2,196 | 1.00 | 59,045 |
+| 5 | `baseline-copilot` | yes | 176,602 | 173,889 | 2,713 | 86 | 0 | 0.00 | 57,106 |
+| 5 | `llm-mem-context` | yes | 211,191 | 208,281 | 2,910 | 2,606 | 2,196 | 1.00 | 61,541 |
+
+Aggregate values:
+
+| Metric | `baseline-copilot` | `llm-mem-context` | Delta |
+| --- | ---: | ---: | ---: |
+| Mean total tokens | 229,377.8 | 177,201.0 | 22.7% fewer |
+| Mean input tokens | 225,934.4 | 174,479.4 | 22.8% fewer |
+| Mean output tokens | 3,443.4 | 2,721.6 | 21.0% fewer |
+| Successful runs | 5/5 | 5/5 | equal |
+| Mean context recall | 0.00 | 1.00 | improved |
+| Mean prompt estimate | 86 | 2,606 | 2,520 more upfront |
+| Mean duration | 73,659.2 ms | 63,073.4 ms | 14.4% faster |
+
+Important caveat: this is a mean improvement, not a per-run guarantee. In repetitions 2, 4, and 5, `llm-mem-context` used more total tokens than `baseline-copilot`; the mean improved because repetitions 1 and 3 saved substantially more tokens.
+
+## Original failed run
+
+The original run is preserved because it is the reason these changes were made.
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-04-25 |
+| OS | Windows_NT |
+| Copilot CLI version | 1.0.36 |
+| Model | `gpt-5.5` |
+| Token source | Copilot CLI OpenTelemetry JSONL |
+| Report ID | `b5d02f89-2fce-4ba6-bcc0-a563567f9174` |
+| Local artifact directory | `.llm-mem\benchmarks\3a7fe861-a770-4255-b3a5-b766a383ce87` |
+
+Original per-run values:
 
 | Repetition | Variant | Success | Total tokens | Input tokens | Output tokens | Duration ms |
 | ---: | --- | ---: | ---: | ---: | ---: | ---: |
@@ -117,7 +178,7 @@ So the result is reported as **-23.9% token savings**, or a **23.9% token regres
 | 5 | `baseline-copilot` | yes | 282,121 | 278,401 | 3,720 | 89,005 |
 | 5 | `llm-mem-context` | yes | 301,160 | 297,943 | 3,217 | 72,639 |
 
-Aggregate values from the benchmark report:
+Original aggregate values:
 
 | Metric | `baseline-copilot` | `llm-mem-context` | Delta |
 | --- | ---: | ---: | ---: |
@@ -125,25 +186,24 @@ Aggregate values from the benchmark report:
 | Mean input tokens | 240,670.6 | 298,976.8 | 24.2% more |
 | Mean output tokens | 3,284.6 | 3,382.0 | 3.0% more |
 | Successful runs | 5/5 | 5/5 | equal |
+| Mean context recall | 0.00 | 0.00 | no improvement |
 | Mean duration | 71,066.0 ms | 87,211.6 ms | 22.7% slower |
 
 ## Interpretation
 
-This benchmark shows that the current explicit context-pack path is not yet a proven token saver for this task.
+The current result supports a narrower claim:
 
-The likely cause is visible in the generated context pack: it added a large prompt context but did not cite the intended gold file, `packages/core/src/context-compiler.ts`. The benchmark therefore found a product gap:
+> For this one read-only `ContextCompiler` benchmark in this repository, symbol/path-aware retrieval plus compact prompt rendering reduced mean live Copilot CLI token usage while preserving the benchmark's quality gate.
 
-- the context pack increased prompt size,
-- Copilot still had to reason and inspect context,
-- and the generated pack missed the most relevant file for this task.
-
-This result supports continuing work on retrieval precision, context-pack size control, and measuring the installed MCP/skill flow separately from the explicit prompt-injection flow.
+It does **not** prove broad token savings across all repositories or task types. The next credible step is a recovery suite with more task classes, including edits with failing tests, architecture questions, test-location tasks, and negative controls where llm-mem should abstain or return a tiny map.
 
 ## Limitations
 
 - This is one local read-only task in one repository, not a broad benchmark.
+- The 22.7% value is an average across five repetitions; three paired repetitions still used more tokens with `llm-mem-context`.
+- The before/after runs were made against different code revisions, so they show product recovery rather than a same-binary A/B comparison.
 - The result reflects this machine's Copilot CLI environment, including available tools, skills, MCP servers, and model behavior on the run date.
 - The benchmark compares non-interactive prompt mode, not an interactive human-guided session.
-- The `llm-mem-context` variant uses explicit context-pack prompt injection; future installed MCP/skill behavior may have different token dynamics.
+- The `llm-mem-context` variant still uses explicit context-pack prompt injection; the new map-first MCP JIT flow should be benchmarked separately.
 - Token usage comes from Copilot CLI OpenTelemetry spans, not billing invoices.
-- The benchmark should be repeated after retrieval and context-budget improvements.
+- Token savings only count if quality remains equal or better; this benchmark used a basic quality gate plus context recall, not a human review rubric.

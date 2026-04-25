@@ -70,12 +70,19 @@ Use `--guidance both` if you want both the clean project skill and the compatibi
 
 ## How this helps in practice
 
-Most coding-agent token waste comes from repeated discovery. `llm-mem` attacks that by turning repo state, source snippets, durable decisions, and task constraints into small cited context packs that Copilot can request through MCP during a normal session.
+Most coding-agent token waste comes from repeated discovery. `llm-mem` now attacks that with a map-first flow: Copilot can ask MCP for a compact list of likely files/symbols, then expand only the snippets it needs instead of receiving a large context dump upfront.
 
-Advanced/manual Copilot CLI workflow:
+Primary Copilot flow after integration:
+
+1. Start `copilot` normally.
+2. For non-trivial repo tasks, the generated skill tells Copilot to call `llm_mem.context_map`.
+3. Copilot expands only necessary candidates with `llm_mem.snippet`.
+4. Full `llm_mem.context_pack` is reserved for broad/debug tasks where the compact map is insufficient.
+
+Advanced/manual full-pack workflow:
 
 ```powershell
-llm-mem context "Fix the cache invalidation bug" --budget 8000 > .llm-mem\context-pack.json
+llm-mem context "Fix the cache invalidation bug" --budget 4000 > .llm-mem\context-pack.json
 
 copilot --model gpt-5.5 --allow-all-tools --no-ask-user -p "Use .llm-mem\context-pack.json as source-grounded context, then fix the task."
 ```
@@ -83,7 +90,7 @@ copilot --model gpt-5.5 --allow-all-tools --no-ask-user -p "Use .llm-mem\context
 Diagnostic non-interactive workflow:
 
 ```powershell
-llm-mem copilot run "Fix the cache invalidation bug" --budget 8000 --model gpt-5.5
+llm-mem copilot run "Fix the cache invalidation bug" --budget 4000 --model gpt-5.5
 ```
 
 Use `--dry-run` to inspect generated prompt artifacts without invoking Copilot:
@@ -98,7 +105,7 @@ Artifacts are written under `.llm-mem/runs/`.
 
 Unit tests only prove the implementation works. They do not prove the token-efficiency thesis. For that, use A/B benchmark runs.
 
-**Current live benchmark result:** this repo's first published 5-run Copilot CLI benchmark did **not** show token savings. `baseline-copilot` averaged **243,955** total Copilot tokens, while `llm-mem-context` averaged **302,359** total Copilot tokens. That is **-23.9% token savings** — a **23.9% regression** — with both variants completing successfully in **5/5** runs. See [TRANSPARENCY.md](TRANSPARENCY.md) for the exact method and raw per-run numbers.
+**Current live benchmark result:** after fixing retrieval and compacting context prompts, this repo's 5-run Copilot CLI benchmark showed **22.7% fewer mean Copilot tokens** with `llm-mem-context`. `baseline-copilot` averaged **229,378** total Copilot tokens, while `llm-mem-context` averaged **177,201**, with both variants completing successfully in **5/5** runs. The first run of this same benchmark had regressed by 23.9%; see [TRANSPARENCY.md](TRANSPARENCY.md) for the full before/after method, raw numbers, and limitations.
 
 The compared variants are:
 

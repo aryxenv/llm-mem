@@ -1,8 +1,14 @@
 import readline from "node:readline";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ContextCompiler } from "@llm-mem/core";
-import { ContextPackRequestSchema, MemoryWriteSchema, WorktreeCreateSchema } from "@llm-mem/protocol";
+import { ContextCompiler, estimateTokens, type RetrievalCandidate } from "@llm-mem/core";
+import {
+  ContextMapRequestSchema,
+  ContextPackRequestSchema,
+  ContextSnippetRequestSchema,
+  MemoryWriteSchema,
+  WorktreeCreateSchema
+} from "@llm-mem/protocol";
 import { SQLiteStore } from "@llm-mem/storage";
 import { WorktreeManager } from "@llm-mem/worktrees";
 
@@ -92,8 +98,37 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
         return {
           tools: [
             {
+              name: "llm_mem.context_map",
+              description: "Return a compact retrieval map for a coding task. Use this before requesting snippets.",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  task: { type: "string" },
+                  repoId: { type: "string" },
+                  workingDirectory: { type: "string" },
+                  constraints: { type: "array", items: { type: "string" } },
+                  maxCandidates: { type: "number" }
+                },
+                required: ["task"]
+              }
+            },
+            {
+              name: "llm_mem.snippet",
+              description: "Expand one context_map candidate by expansionId into a cited source snippet.",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  expansionId: { type: "string" },
+                  repoId: { type: "string" },
+                  workingDirectory: { type: "string" },
+                  maxTokens: { type: "number" }
+                },
+                required: ["expansionId"]
+              }
+            },
+            {
               name: "llm_mem.context_pack",
-              description: "Build a source-grounded context pack for a coding task.",
+              description: "Build a larger source-grounded context pack for broad/debug tasks. Prefer context_map first.",
               inputSchema: {
                 type: "object",
                 properties: {
@@ -174,9 +209,7 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
     switch (parsed.name) {
       case "llm_mem.context_pack": {
         const args = ContextPackRequestSchema.parse(parsed.arguments);
-        const workingDirectory = path.resolve(args.workingDirectory ?? rootPath);
-        const repoId =
-          args.repoId ?? store.getRepoByRoot(rootPath)?.id ?? (await store.upsertRepo(rootPath)).id;
+        const { repoId, workingDirectory } = await resolveRepoContext(args.repoId, args.workingDirectory);
         const pack = await compiler.compile(
           {
             task: args.task,
@@ -188,6 +221,55 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
         );
         store.recordContextPack(pack);
         return { content: [{ type: "text", text: JSON.stringify(pack, null, 2) }] };
+      }
+      case "llm_mem.context_map": {
+        const args = ContextMapRequestSchema.parse(parsed.arguments);
+        const { repoId, workingDirectory } = await resolveRepoContext(args.repoId, args.workingDirectory);
+        const candidates = await store.retrieve(
+          {
+            task: args.task,
+            repoId,
+            workingDirectory,
+            ...(args.constraints === undefined ? {} : { constraints: args.constraints })
+          },
+          args.maxCandidates
+        );
+        const map = {
+          task: args.task,
+          repoId,
+          workingDirectory,
+          candidateCount: candidates.length,
+          estimatedTokens: estimateTokens(JSON.stringify(candidates.map(contextMapCandidate))),
+          usage:
+            "Use expansionId with llm_mem.snippet for only the files or symbols needed. Avoid llm_mem.context_pack unless this compact map is insufficient.",
+          candidates: candidates.map(contextMapCandidate)
+        };
+        return { content: [{ type: "text", text: JSON.stringify(map, null, 2) }] };
+      }
+      case "llm_mem.snippet": {
+        const args = ContextSnippetRequestSchema.parse(parsed.arguments);
+        const { repoId, workingDirectory } = await resolveRepoContext(args.repoId, args.workingDirectory);
+        const candidate = store.getCandidateByExpansionId(repoId, args.expansionId, args.maxTokens);
+        if (candidate === undefined) {
+          throw new Error(`Unknown or stale expansionId for ${workingDirectory}: ${args.expansionId}`);
+        }
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  expansionId: args.expansionId,
+                  repoId,
+                  workingDirectory,
+                  ...snippetPayload(candidate)
+                },
+                null,
+                2
+              )
+            }
+          ]
+        };
       }
       case "llm_mem.remember": {
         const args = MemoryWriteSchema.parse(parsed.arguments);
@@ -247,13 +329,13 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
     switch (parsed.name) {
       case "coding-task-with-context":
         return {
-          description: "Use llm-mem context packs before coding.",
+          description: "Use llm-mem map-first context before coding.",
           messages: [
             {
               role: "user",
               content: {
                 type: "text",
-                text: "Before editing code, call llm_mem.context_pack for the task and use cited context first."
+                text: "For non-trivial repo tasks, call llm_mem.context_map first. Expand only necessary candidates with llm_mem.snippet. Use llm_mem.context_pack only when the compact map is insufficient."
               }
             }
           ]
@@ -280,6 +362,19 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
     output.write(`${JSON.stringify(response)}\n`);
   }
 
+  async function resolveRepoContext(repoId: string | undefined, workingDirectoryInput: string | undefined): Promise<{ repoId: string; workingDirectory: string }> {
+    const workingDirectory = path.resolve(workingDirectoryInput ?? rootPath);
+    if (repoId !== undefined) {
+      return { repoId, workingDirectory };
+    }
+
+    const repo =
+      workingDirectoryInput === undefined
+        ? store.getRepoByRoot(rootPath) ?? (await store.upsertRepo(rootPath))
+        : store.getRepoByRoot(workingDirectory) ?? (await store.upsertRepo(workingDirectory));
+    return { repoId: repo.id, workingDirectory };
+  }
+
   return {
     rootPath,
     databasePath,
@@ -295,6 +390,30 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
       store.close();
     }
   }
+}
+
+function contextMapCandidate(candidate: RetrievalCandidate): Record<string, unknown> {
+  return {
+    expansionId: candidate.expansionId,
+    kind: candidate.kind,
+    title: candidate.title,
+    score: Number(candidate.score.toFixed(3)),
+    confidence: Number(candidate.confidence.toFixed(3)),
+    tokenCost: candidate.tokenCost,
+    matchReasons: candidate.matchReasons ?? [],
+    sourceRefs: candidate.sourceRefs
+  };
+}
+
+function snippetPayload(candidate: RetrievalCandidate): Record<string, unknown> {
+  return {
+    kind: candidate.kind,
+    title: candidate.title,
+    tokenCost: candidate.tokenCost,
+    matchReasons: candidate.matchReasons ?? [],
+    sourceRefs: candidate.sourceRefs,
+    content: candidate.content
+  };
 }
 
 if (process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

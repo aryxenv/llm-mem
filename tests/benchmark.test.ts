@@ -49,6 +49,8 @@ describe("benchmark support", () => {
 
     expect(built.prompt).toContain("source-grounded llm-mem context pack");
     expect(built.prompt).toContain("packages/core/src/context-compiler.ts");
+    expect(built.prompt).not.toContain("Estimated tokens:");
+    expect(built.prompt).not.toContain("Context budget:");
     expect(built.estimatedTokens).toBeGreaterThan(0);
   });
 

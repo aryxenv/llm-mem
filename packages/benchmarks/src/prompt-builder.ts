@@ -35,13 +35,15 @@ function buildBaselinePrompt(task: string): string {
 function buildContextPrompt(options: Required<BuildCopilotPromptOptions>): string {
   const pack = options.contextPack;
   const sections = pack.sections
+    .filter((section) => section.type !== "task_summary" && section.type !== "citations")
     .map((section, index) =>
       [
-        `## Context section ${index + 1}: ${section.title}`,
-        `Type: ${section.type}`,
-        `Estimated tokens: ${section.tokens}`,
+        `## ${index + 1}. ${section.title}`,
+        section.sourceRefs.length > 0 ? `Sources: ${formatSourceRefs(section.sourceRefs)}` : undefined,
         section.content
-      ].join("\n")
+      ]
+        .filter((value): value is string => value !== undefined)
+        .join("\n")
     )
     .join("\n\n");
   const citations =
@@ -65,13 +67,22 @@ function buildContextPrompt(options: Required<BuildCopilotPromptOptions>): strin
     "",
     `Task: ${options.task}`,
     "",
-    `Context pack id: ${pack.id}`,
-    `Context budget: ${pack.budget.usedEstimate}/${pack.budget.maxTokens} estimated tokens`,
-    "",
-    "# Context pack",
-    sections,
+    "# Compact context",
+    sections.length === 0 ? "No retrieved context was included." : sections,
     "",
     "# Citations",
     citations
   ].join("\n");
+}
+
+function formatSourceRefs(sourceRefs: ContextPack["citations"]): string {
+  return sourceRefs
+    .map((source) => {
+      const range =
+        source.startLine === undefined
+          ? ""
+          : `#L${source.startLine}${source.endLine === undefined ? "" : `-L${source.endLine}`}`;
+      return `${source.uri}${range}`;
+    })
+    .join(", ");
 }

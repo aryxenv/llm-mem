@@ -55,6 +55,8 @@ export interface RetrievalCandidate {
   tags?: string[] | undefined;
   freshness?: "fresh" | "stale" | "unknown";
   expansionId?: string | undefined;
+  matchReasons?: string[] | undefined;
+  tokenCost?: number | undefined;
 }
 
 export interface ContextPackSection {
@@ -123,6 +125,17 @@ export interface ChunkRecordInput {
   tokenCount: number;
 }
 
+export interface SymbolRecordInput {
+  repoId: string;
+  fileId: string;
+  name: string;
+  kind: string;
+  startLine: number;
+  endLine: number;
+  signature?: string | undefined;
+  parentSymbolId?: string | undefined;
+}
+
 export interface RepoRecord {
   id: string;
   rootPath: string;
@@ -133,6 +146,7 @@ export interface IndexWriter {
   upsertRepo(rootPath: string, currentHead?: string): Promise<RepoRecord>;
   upsertFile(input: FileRecordInput): Promise<{ id: string }>;
   replaceFileChunks(fileId: string, chunks: ChunkRecordInput[]): Promise<void>;
+  replaceFileSymbols?(fileId: string, symbols: SymbolRecordInput[]): Promise<void>;
   pruneMissingFiles?(repoId: string, seenPaths: string[]): Promise<number>;
 }
 

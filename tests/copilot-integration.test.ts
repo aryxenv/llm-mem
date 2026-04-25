@@ -49,9 +49,11 @@ describe("Copilot integration", () => {
 
     const skill = await readFile(path.join(repoDir, COPILOT_SKILL_FILE), "utf8");
     expect(skill).toContain("name: llm-mem");
+    expect(skill).toContain("llm_mem.context_map");
+    expect(skill).toContain("llm_mem.snippet");
     expect(skill).toContain("llm_mem.context_pack");
     expect(skill).toContain("\"workingDirectory\": \"<current repository or worktree root>\"");
-    expect(skill).toContain("Do not run shell `llm-mem context` when the MCP tool is available.");
+    expect(skill).toContain("Do not call `llm_mem.context_pack` as the default first move.");
     await expect(fileExists(path.join(repoDir, COPILOT_INSTRUCTIONS_FILE))).resolves.toBe(false);
 
     const secondInstall = await installCopilotIntegration({ rootPath: repoDir, mcpCommand });
@@ -67,6 +69,8 @@ describe("Copilot integration", () => {
     await expect(fileExists(path.join(repoDir, COPILOT_SKILL_FILE))).resolves.toBe(false);
     const instructions = await readFile(path.join(repoDir, COPILOT_INSTRUCTIONS_FILE), "utf8");
     expect(instructions).toContain(LLM_MEM_INSTRUCTIONS_START);
+    expect(instructions).toContain("llm_mem.context_map");
+    expect(instructions).toContain("llm_mem.snippet");
     expect(instructions).toContain("llm_mem.context_pack");
   });
 
@@ -128,8 +132,8 @@ describe("Copilot integration", () => {
 
     expect(result.changes.find((change) => change.path === skillPath)?.action).toBe("update");
     const upgraded = await readFile(skillPath, "utf8");
-    expect(upgraded).toContain("## Required first move");
-    expect(upgraded).toContain("Do not run shell `llm-mem context` when the MCP tool is available.");
+    expect(upgraded).toContain("## Required first move for non-trivial repo tasks");
+    expect(upgraded).toContain("Do not call `llm_mem.context_pack` as the default first move.");
   });
 
   it("uninstalls only the llm-mem MCP entry, skill, and marked instruction block", async () => {

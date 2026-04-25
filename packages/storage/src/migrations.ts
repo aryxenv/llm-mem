@@ -59,6 +59,16 @@ export const MIGRATIONS: readonly string[] = [
     parent_symbol_id TEXT
   );
 
+  CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
+    symbol_id UNINDEXED,
+    repo_id UNINDEXED,
+    name,
+    normalized_name,
+    path,
+    kind,
+    signature
+  );
+
   CREATE TABLE IF NOT EXISTS edges (
     id TEXT PRIMARY KEY,
     repo_id TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
