@@ -238,6 +238,8 @@ benchmarkCommand
   .option("--budget <tokens>", "Maximum context-pack token budget", "8000")
   .option("--model <model>", "Copilot CLI model", "gpt-5.5")
   .option("--executable <path>", "Copilot CLI executable", "copilot")
+  .option("--repeat <count>", "Number of times to repeat each task/variant", "1")
+  .option("--token-source <source>", "Token source: estimate or otel", "estimate")
   .option("--dry-run", "Write benchmark prompts/reports but do not invoke Copilot CLI")
   .option("--no-worktree", "Run live benchmark in the current worktree instead of isolated git worktrees")
   .action(
@@ -249,6 +251,8 @@ benchmarkCommand
         budget: string;
         model: string;
         executable: string;
+        repeat: string;
+        tokenSource: string;
         dryRun?: boolean;
         worktree?: boolean;
       }
@@ -265,6 +269,8 @@ benchmarkCommand
         variants,
         budget: parseTokenBudget(options.budget),
         model: options.model,
+        repeat: parseRepeat(options.repeat),
+        tokenSource: parseTokenSource(options.tokenSource),
         dryRun: options.dryRun === true,
         isolateWorktrees: options.dryRun === true ? false : options.worktree !== false
       });
@@ -425,6 +431,23 @@ function parseVariants(input: string[] | undefined): BenchmarkVariant[] {
   }
 
   return variants as BenchmarkVariant[];
+}
+
+function parseRepeat(input: string): number {
+  const value = Number.parseInt(input, 10);
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 1 || value > 100) {
+    throw new Error("Repeat count must be an integer from 1 to 100.");
+  }
+
+  return value;
+}
+
+function parseTokenSource(input: string): "estimate" | "otel" {
+  if (input !== "estimate" && input !== "otel") {
+    throw new Error("Token source must be one of: estimate, otel.");
+  }
+
+  return input;
 }
 
 function openStore(rootPath: string, databasePath?: string): SQLiteStore {

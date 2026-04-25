@@ -8,6 +8,7 @@ import { ContextCompiler, estimateTokens, type ContextPack } from "@llm-mem/core
 import { RepositoryIndexer } from "@llm-mem/indexer";
 import { SQLiteStore } from "@llm-mem/storage";
 import { CopilotCliAdapter, type CopilotRunResult } from "./copilot-adapter.js";
+import { parseCopilotOtelTokenUsage, type CopilotTokenUsage } from "./otel-parser.js";
 import { buildCopilotPrompt } from "./prompt-builder.js";
 
 const execAsync = promisify(exec);
@@ -20,6 +21,7 @@ export const BenchmarkTaskSchema = z.object({
   baseRef: z.string().optional(),
   testCommand: z.string().optional(),
   goldFiles: z.array(z.string()).default([]),
+  requiredOutputSubstrings: z.array(z.string()).default([]),
   timeoutMs: z.number().int().positive().optional()
 });
 
@@ -39,6 +41,8 @@ export interface BenchmarkRunOptions {
   model?: string;
   dryRun?: boolean;
   isolateWorktrees?: boolean;
+  repeat?: number;
+  tokenSource?: "estimate" | "otel";
   outputRoot?: string;
 }
 
@@ -46,13 +50,22 @@ export interface BenchmarkTaskResult {
   id: string;
   taskId: string;
   suiteName: string;
+  repetition: number;
   variant: BenchmarkVariant;
   promptTokensEstimate: number;
   contextTokensEstimate: number;
   outputTokensEstimate: number;
+  inputTokensActual?: number;
+  outputTokensActual?: number;
+  reasoningOutputTokensActual?: number;
+  totalTokensActual?: number;
+  tokenUsageSource?: CopilotTokenUsage["source"];
+  copilotCost?: number;
+  chatCallCount?: number;
   durationMs: number;
   exitCode: number | null;
   testExitCode: number | null;
+  qualityPassed: boolean;
   resolved: boolean;
   worktreePath?: string;
   contextRecall: number;
@@ -74,7 +87,12 @@ export interface BenchmarkRunReport {
     resultCount: number;
     resolvedByVariant: Record<string, number>;
     meanPromptTokensByVariant: Record<string, number>;
+    meanInputTokensByVariant: Record<string, number>;
+    meanOutputTokensByVariant: Record<string, number>;
+    meanTotalTokensByVariant: Record<string, number>;
+    meanDurationMsByVariant: Record<string, number>;
     meanContextRecallByVariant: Record<string, number>;
+    qualityPassedByVariant: Record<string, number>;
   };
 }
 
@@ -93,16 +111,19 @@ export class BenchmarkRunner {
     const startedAt = new Date();
     const runId = randomUUID();
     const outputRoot = path.resolve(options.outputRoot ?? path.join(process.cwd(), ".llm-mem", "benchmarks", runId));
+    const repeat = options.repeat ?? 1;
     const benchmarkRun = this.store.createBenchmarkRun({
       suiteName: suite.name,
       variants: options.variants,
-      metadata: { source: suite.source ?? null, dryRun: options.dryRun === true }
+      metadata: { source: suite.source ?? null, dryRun: options.dryRun === true, repeat, tokenSource: options.tokenSource ?? "estimate" }
     });
     const results: BenchmarkTaskResult[] = [];
 
     for (const task of suite.tasks) {
-      for (const variant of options.variants) {
-        results.push(await this.runTaskVariant(suite, task, variant, options, outputRoot, benchmarkRun.id));
+      for (let repetition = 1; repetition <= repeat; repetition += 1) {
+        for (const variant of options.variants) {
+          results.push(await this.runTaskVariant(suite, task, variant, repetition, options, outputRoot, benchmarkRun.id));
+        }
       }
     }
 
@@ -128,15 +149,22 @@ export class BenchmarkRunner {
     suite: BenchmarkSuite,
     task: BenchmarkTask,
     variant: BenchmarkVariant,
+    repetition: number,
     options: BenchmarkRunOptions,
     outputRoot: string,
     runId: string
   ): Promise<BenchmarkTaskResult> {
     const repoRoot = path.resolve(task.repoRoot ?? process.cwd());
-    const outputDirectory = path.join(outputRoot, sanitizePathSegment(task.id), variant);
+    const repeatSuffix = (options.repeat ?? 1) > 1 ? `repeat-${repetition}` : undefined;
+    const outputDirectory = path.join(
+      outputRoot,
+      sanitizePathSegment(task.id),
+      ...(repeatSuffix === undefined ? [] : [repeatSuffix]),
+      variant
+    );
     const worktreePath =
       options.isolateWorktrees === true
-        ? await createBenchmarkWorktree(repoRoot, outputRoot, task, variant, task.baseRef)
+        ? await createBenchmarkWorktree(repoRoot, outputRoot, task, variant, task.baseRef, repeatSuffix)
         : undefined;
     const runCwd = worktreePath ?? repoRoot;
     let contextPack: ContextPack | undefined;
@@ -155,29 +183,61 @@ export class BenchmarkRunner {
     }
 
     const builtPrompt = buildCopilotPrompt({ task: task.prompt, ...(contextPack === undefined ? {} : { contextPack }) });
+    const otelPath = path.join(outputDirectory, "copilot-otel.jsonl");
+    const copilotEnv =
+      options.tokenSource === "otel"
+        ? {
+            COPILOT_OTEL_ENABLED: "true",
+            COPILOT_OTEL_EXPORTER_TYPE: "file",
+            COPILOT_OTEL_FILE_EXPORTER_PATH: otelPath
+          }
+        : undefined;
     const copilotResult = await this.copilot.run({
       cwd: runCwd,
       prompt: builtPrompt.prompt,
       outputDirectory,
       model: options.model ?? "gpt-5.5",
-      dryRun: options.dryRun === true
+      dryRun: options.dryRun === true,
+      ...(copilotEnv === undefined ? {} : { env: copilotEnv })
     });
+    const tokenUsage =
+      options.tokenSource === "otel" && options.dryRun !== true
+        ? await parseCopilotOtelTokenUsage(otelPath)
+        : undefined;
+    if (tokenUsage?.source === "missing") {
+      throw new Error(`Copilot OpenTelemetry token data was not found or contained no chat token spans: ${otelPath}`);
+    }
     const testResult = await runTestCommand(runCwd, task.testCommand, task.timeoutMs);
     const worktreeStatus = worktreePath === undefined ? "" : await gitOutput(runCwd, ["status", "--porcelain"]);
-    const recall = scoreContextRecall(task.goldFiles, contextPack);
+    const recall = scoreContextRecall(task.goldFiles ?? [], contextPack);
     const outputTokensEstimate = estimateTokens(copilotResult.stdout);
-    const resolved = copilotResult.exitCode === 0 && (testResult.exitCode === null || testResult.exitCode === 0);
+    const qualityPassed = scoreOutputQuality(copilotResult.stdout, task.requiredOutputSubstrings ?? []);
+    const resolved =
+      copilotResult.exitCode === 0 && (testResult.exitCode === null || testResult.exitCode === 0) && qualityPassed;
     const result: BenchmarkTaskResult = {
       id: randomUUID(),
       taskId: task.id,
       suiteName: suite.name,
+      repetition,
       variant,
       promptTokensEstimate: copilotResult.promptTokensEstimate,
       contextTokensEstimate: contextPack?.budget.usedEstimate ?? 0,
       outputTokensEstimate,
+      ...(tokenUsage === undefined
+        ? {}
+        : {
+            inputTokensActual: tokenUsage.inputTokens,
+            outputTokensActual: tokenUsage.outputTokens,
+            reasoningOutputTokensActual: tokenUsage.reasoningOutputTokens,
+            totalTokensActual: tokenUsage.totalTokens,
+            tokenUsageSource: tokenUsage.source,
+            copilotCost: tokenUsage.cost,
+            chatCallCount: tokenUsage.chatCallCount
+          }),
       durationMs: copilotResult.durationMs + testResult.durationMs,
       exitCode: copilotResult.exitCode,
       testExitCode: testResult.exitCode,
+      qualityPassed,
       resolved,
       ...(worktreePath === undefined ? {} : { worktreePath }),
       contextRecall: recall.contextRecall,
@@ -198,7 +258,7 @@ export class BenchmarkRunner {
       durationMs: result.durationMs,
       testExitCode: result.testExitCode,
       contextRecall: result.contextRecall,
-      artifacts: { outputDirectory, copilot: copilotResult, test: testResult, worktreeStatus }
+      artifacts: { outputDirectory, copilot: copilotResult, test: testResult, worktreeStatus, otelPath }
     });
     return result;
   }
@@ -209,7 +269,8 @@ async function createBenchmarkWorktree(
   outputRoot: string,
   task: BenchmarkTask,
   variant: BenchmarkVariant,
-  baseRef: string | undefined
+  baseRef: string | undefined,
+  repeatSuffix: string | undefined
 ): Promise<string> {
   const status = await gitOutput(repoRoot, ["status", "--porcelain"]);
   if (status.trim().length > 0) {
@@ -217,8 +278,9 @@ async function createBenchmarkWorktree(
   }
 
   const worktreesRoot = path.resolve(path.dirname(repoRoot), `${path.basename(repoRoot)}.benchmark-worktrees`);
-  const worktreePath = path.join(worktreesRoot, sanitizePathSegment(path.basename(outputRoot)), `${sanitizePathSegment(task.id)}-${variant}`);
-  const branch = `llm-mem/bench/${sanitizePathSegment(path.basename(outputRoot))}/${sanitizePathSegment(task.id)}-${variant}`;
+  const taskSegment = [sanitizePathSegment(task.id), repeatSuffix, variant].filter((segment) => segment !== undefined).join("-");
+  const worktreePath = path.join(worktreesRoot, sanitizePathSegment(path.basename(outputRoot)), taskSegment);
+  const branch = `llm-mem/bench/${sanitizePathSegment(path.basename(outputRoot))}/${taskSegment}`;
   await mkdir(path.dirname(worktreePath), { recursive: true });
   await execFileAsync("git", ["worktree", "add", "-b", branch, worktreePath, baseRef ?? "HEAD"], {
     cwd: repoRoot,
@@ -295,13 +357,23 @@ function aggregateResults(taskCount: number, results: BenchmarkTaskResult[]): Be
   const variants = [...new Set(results.map((result) => result.variant))];
   const resolvedByVariant: Record<string, number> = {};
   const meanPromptTokensByVariant: Record<string, number> = {};
+  const meanInputTokensByVariant: Record<string, number> = {};
+  const meanOutputTokensByVariant: Record<string, number> = {};
+  const meanTotalTokensByVariant: Record<string, number> = {};
+  const meanDurationMsByVariant: Record<string, number> = {};
   const meanContextRecallByVariant: Record<string, number> = {};
+  const qualityPassedByVariant: Record<string, number> = {};
 
   for (const variant of variants) {
     const variantResults = results.filter((result) => result.variant === variant);
     resolvedByVariant[variant] = variantResults.filter((result) => result.resolved).length;
     meanPromptTokensByVariant[variant] = mean(variantResults.map((result) => result.promptTokensEstimate));
+    meanInputTokensByVariant[variant] = mean(actualTokenValues(variantResults, "inputTokensActual"));
+    meanOutputTokensByVariant[variant] = mean(actualTokenValues(variantResults, "outputTokensActual"));
+    meanTotalTokensByVariant[variant] = mean(actualTokenValues(variantResults, "totalTokensActual"));
+    meanDurationMsByVariant[variant] = mean(variantResults.map((result) => result.durationMs));
     meanContextRecallByVariant[variant] = mean(variantResults.map((result) => result.contextRecall));
+    qualityPassedByVariant[variant] = variantResults.filter((result) => result.qualityPassed).length;
   }
 
   return {
@@ -309,15 +381,20 @@ function aggregateResults(taskCount: number, results: BenchmarkTaskResult[]): Be
     resultCount: results.length,
     resolvedByVariant,
     meanPromptTokensByVariant,
-    meanContextRecallByVariant
+    meanInputTokensByVariant,
+    meanOutputTokensByVariant,
+    meanTotalTokensByVariant,
+    meanDurationMsByVariant,
+    meanContextRecallByVariant,
+    qualityPassedByVariant
   };
 }
 
 export function renderMarkdownReport(report: BenchmarkRunReport): string {
   const rows = report.results
     .map(
-      (result) =>
-        `| ${result.taskId} | ${result.variant} | ${result.resolved ? "yes" : "no"} | ${result.promptTokensEstimate} | ${result.contextTokensEstimate} | ${result.contextRecall.toFixed(2)} | ${result.worktreePath ?? ""} |`
+        (result) =>
+        `| ${result.taskId} | ${result.repetition} | ${result.variant} | ${result.resolved ? "yes" : "no"} | ${result.totalTokensActual ?? ""} | ${result.inputTokensActual ?? ""} | ${result.outputTokensActual ?? ""} | ${result.promptTokensEstimate} | ${result.contextTokensEstimate} | ${result.contextRecall.toFixed(2)} | ${result.worktreePath ?? ""} |`
     )
     .join("\n");
 
@@ -327,8 +404,8 @@ export function renderMarkdownReport(report: BenchmarkRunReport): string {
     `Run: \`${report.id}\``,
     report.source ? `Source: ${report.source}` : undefined,
     "",
-    "| Task | Variant | Resolved | Prompt tokens | Context tokens | Context recall | Worktree |",
-    "|---|---|---:|---:|---:|---:|---|",
+    "| Task | Repetition | Variant | Resolved | Actual total tokens | Actual input tokens | Actual output tokens | Prompt estimate | Context estimate | Context recall | Worktree |",
+    "|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---|",
     rows,
     "",
     "## Aggregate",
@@ -347,6 +424,17 @@ function mean(values: number[]): number {
   }
 
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function actualTokenValues(
+  results: BenchmarkTaskResult[],
+  key: "inputTokensActual" | "outputTokensActual" | "totalTokensActual"
+): number[] {
+  return results.map((result) => result[key]).filter((value): value is number => typeof value === "number");
+}
+
+function scoreOutputQuality(stdout: string, requiredOutputSubstrings: string[]): boolean {
+  return requiredOutputSubstrings.every((substring) => stdout.toLowerCase().includes(substring.toLowerCase()));
 }
 
 function normalizePath(input: string): string {

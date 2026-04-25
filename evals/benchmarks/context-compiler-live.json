@@ -1,0 +1,14 @@
+{
+  "name": "context-compiler-live",
+  "source": "Local llm-mem repository live Copilot token benchmark",
+  "tasks": [
+    {
+      "id": "context-compiler-explanation",
+      "prompt": "Explain how llm-mem's ContextCompiler builds a context pack, identify the main files involved, and list the validation command for its tests. Do not edit files.",
+      "testCommand": "npm test -- tests/context-compiler.test.ts",
+      "goldFiles": ["packages/core/src/context-compiler.ts"],
+      "requiredOutputSubstrings": ["ContextCompiler", "context-compiler"],
+      "timeoutMs": 120000
+    }
+  ]
+}

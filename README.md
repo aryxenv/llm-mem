@@ -96,7 +96,11 @@ Artifacts are written under `.llm-mem/runs/`.
 
 ## Benchmarking the value
 
-Unit tests only prove the implementation works. They do not prove the token-efficiency thesis. For that, use A/B benchmark runs:
+Unit tests only prove the implementation works. They do not prove the token-efficiency thesis. For that, use A/B benchmark runs.
+
+**Current live benchmark result:** this repo's first published 5-run Copilot CLI benchmark did **not** show token savings. `baseline-copilot` averaged **243,955** total Copilot tokens, while `llm-mem-context` averaged **302,359** total Copilot tokens. That is **-23.9% token savings** — a **23.9% regression** — with both variants completing successfully in **5/5** runs. See [TRANSPARENCY.md](TRANSPARENCY.md) for the exact method and raw per-run numbers.
+
+The compared variants are:
 
 - `baseline-copilot`: Copilot CLI receives only the task prompt.
 - `llm-mem-context`: Copilot CLI receives the task prompt plus a generated context pack.
