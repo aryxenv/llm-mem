@@ -19,9 +19,16 @@ The thesis: token waste is usually caused by repeated discovery, stale summaries
 
 Most coding-agent token waste comes from rediscovering project structure: reading the same files, re-learning conventions, restating prior decisions, and dumping broad context because the agent cannot prove which small slice is enough. `llm-mem` reduces that waste by indexing the repo once and compiling a task-specific, source-grounded context pack before the coding agent starts.
 
-The intended user experience is install-and-forget: configure a repo once, then keep launching Copilot CLI normally.
+The intended user experience is install-and-forget: install the `llm-mem` CLI once for your user/machine, opt in each repository explicitly, then keep launching Copilot CLI normally.
 
-Install the CLI from this source checkout:
+| Layer | Scope | What it does |
+| --- | --- | --- |
+| `llm-mem` CLI | Global/user-level | Makes the `llm-mem` command available on PATH for any repo. |
+| `.llm-mem/` index | Project-specific | Stores that repo's local SQLite index, context packs, and benchmark artifacts. |
+| `.mcp.json` + `.github\skills\llm-mem\SKILL.md` | Project-specific | Opts that repo into Copilot + `llm-mem` integration. |
+| `copilot` command | Unchanged | You still start Copilot normally; no PATH hijack or replacement binary. |
+
+Install the CLI once from this source checkout:
 
 ```powershell
 npm install
@@ -29,7 +36,7 @@ npm run build
 npm run link:cli
 ```
 
-Then, in the project you want Copilot to optimize:
+Then, once per project you want Copilot to optimize:
 
 ```powershell
 llm-mem integrate copilot install
