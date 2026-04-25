@@ -5,11 +5,7 @@ const fromRoot = (value: string) => fileURLToPath(new URL(value, import.meta.url
 
 export default defineConfig({
   test: {
-    include: ["tests/**/*.test.ts"],
-    exclude: ["tests/live/**"],
-    coverage: {
-      reporter: ["text", "json"]
-    }
+    include: ["tests/live/**/*.test.ts"]
   },
   resolve: {
     alias: {
@@ -19,6 +15,7 @@ export default defineConfig({
       "@llm-mem/indexer": fromRoot("./packages/indexer/src/index.ts"),
       "@llm-mem/worktrees": fromRoot("./packages/worktrees/src/index.ts"),
       "@llm-mem/agents": fromRoot("./packages/agents/src/index.ts"),
+      "@llm-mem/benchmarks": fromRoot("./packages/benchmarks/src/index.ts"),
       "@llm-mem/evals": fromRoot("./packages/evals/src/index.ts")
     }
   }

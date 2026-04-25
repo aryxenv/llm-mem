@@ -6,6 +6,7 @@
     "llm-mem": "dist/index.js"
   },
   "dependencies": {
+    "@llm-mem/benchmarks": "0.1.0",
     "@llm-mem/core": "0.1.0",
     "@llm-mem/daemon": "0.1.0",
     "@llm-mem/evals": "0.1.0",

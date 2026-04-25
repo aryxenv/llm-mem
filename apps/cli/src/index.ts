@@ -3,6 +3,14 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
 import { Command } from "commander";
+import {
+  BenchmarkRunner,
+  CopilotCliAdapter,
+  buildCopilotPrompt,
+  loadBenchmarkSuite,
+  renderMarkdownReport,
+  type BenchmarkVariant
+} from "@llm-mem/benchmarks";
 import { ContextCompiler } from "@llm-mem/core";
 import { startDaemon } from "@llm-mem/daemon";
 import { EvalRunner, loadEvalDataset } from "@llm-mem/evals";
@@ -158,6 +166,115 @@ worktreeCommand
     printJson(result);
   });
 
+const copilotCommand = program.command("copilot").description("Use llm-mem context packs with Copilot CLI.");
+copilotCommand
+  .command("run")
+  .argument("<task>", "Task prompt for Copilot CLI.")
+  .option("--db <path>", "SQLite database path")
+  .option("--budget <tokens>", "Maximum context-pack token budget", "8000")
+  .option("--model <model>", "Copilot CLI model", "gpt-5.5")
+  .option("--executable <path>", "Copilot CLI executable", "copilot")
+  .option("--dry-run", "Write prompt artifacts but do not invoke Copilot CLI")
+  .action(
+    async (
+      task: string,
+      options: { db?: string; budget: string; model: string; executable: string; dryRun?: boolean }
+    ) => {
+      const rootPath = process.cwd();
+      const store = openStore(rootPath, options.db);
+      const indexer = new RepositoryIndexer(store);
+      const indexResult = await indexer.index(rootPath, await currentHead(rootPath));
+      const compiler = new ContextCompiler(store);
+      const pack = await compiler.compile(
+        { task, repoId: indexResult.repo.id, workingDirectory: rootPath },
+        { maxTokens: parseTokenBudget(options.budget), modelPolicy: `preferred:${options.model}` }
+      );
+      store.recordContextPack(pack);
+      const builtPrompt = buildCopilotPrompt({ task, contextPack: pack });
+      const outputDirectory = path.join(rootPath, ".llm-mem", "runs", pack.id);
+      const adapter = new CopilotCliAdapter({ executable: options.executable, defaultModel: options.model });
+      const result = await adapter.run({
+        cwd: rootPath,
+        prompt: builtPrompt.prompt,
+        outputDirectory,
+        model: options.model,
+        dryRun: options.dryRun === true
+      });
+      store.close();
+      printJson({ contextPack: pack, copilot: result, outputDirectory });
+    }
+  );
+
+const benchmarkCommand = program.command("benchmark").description("Run A/B benchmarks for token-efficiency.");
+benchmarkCommand
+  .command("list")
+  .option("--dir <path>", "Benchmark suite directory", "evals\\benchmarks")
+  .description("List benchmark suite JSON files.")
+  .action(async (options: { dir: string }) => {
+    const { readdir } = await import("node:fs/promises");
+    const directory = path.resolve(options.dir);
+    const entries = await readdir(directory, { withFileTypes: true });
+    printJson({
+      directory,
+      suites: entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+        .map((entry) => path.join(directory, entry.name))
+    });
+  });
+
+benchmarkCommand
+  .command("run")
+  .argument("<suite>", "Benchmark suite JSON file.")
+  .option("--db <path>", "SQLite database path")
+  .option("--variant <variant...>", "Variant(s): baseline-copilot, llm-mem-context")
+  .option("--budget <tokens>", "Maximum context-pack token budget", "8000")
+  .option("--model <model>", "Copilot CLI model", "gpt-5.5")
+  .option("--executable <path>", "Copilot CLI executable", "copilot")
+  .option("--dry-run", "Write benchmark prompts/reports but do not invoke Copilot CLI")
+  .option("--no-worktree", "Run live benchmark in the current worktree instead of isolated git worktrees")
+  .action(
+    async (
+      suitePath: string,
+      options: {
+        db?: string;
+        variant?: string[];
+        budget: string;
+        model: string;
+        executable: string;
+        dryRun?: boolean;
+        worktree?: boolean;
+      }
+    ) => {
+      const rootPath = process.cwd();
+      const store = openStore(rootPath, options.db);
+      const suite = await loadBenchmarkSuite(path.resolve(suitePath));
+      const variants = parseVariants(options.variant);
+      const runner = new BenchmarkRunner(
+        store,
+        new CopilotCliAdapter({ executable: options.executable, defaultModel: options.model })
+      );
+      const report = await runner.runSuite(suite, {
+        variants,
+        budget: parseTokenBudget(options.budget),
+        model: options.model,
+        dryRun: options.dryRun === true,
+        isolateWorktrees: options.dryRun === true ? false : options.worktree !== false
+      });
+      store.close();
+      printJson(report);
+    }
+  );
+
+benchmarkCommand
+  .command("compare")
+  .argument("<report>", "Benchmark report JSON file.")
+  .description("Render a benchmark JSON report as Markdown.")
+  .action(async (reportPath: string) => {
+    const { readFile } = await import("node:fs/promises");
+    const report = JSON.parse(await readFile(path.resolve(reportPath), "utf8"));
+    console.log(renderMarkdownReport(report));
+  });
+
 program
   .command("eval")
   .description("Run local context-pack evaluations.")
@@ -196,6 +313,19 @@ function parseTokenBudget(input: string): number {
   }
 
   return value;
+}
+
+function parseVariants(input: string[] | undefined): BenchmarkVariant[] {
+  const variants = input ?? ["baseline-copilot", "llm-mem-context"];
+  const allowed = new Set(["baseline-copilot", "llm-mem-context"]);
+
+  for (const variant of variants) {
+    if (!allowed.has(variant)) {
+      throw new Error(`Invalid benchmark variant: ${variant}`);
+    }
+  }
+
+  return variants as BenchmarkVariant[];
 }
 
 function openStore(rootPath: string, databasePath?: string): SQLiteStore {

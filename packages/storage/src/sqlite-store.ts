@@ -349,6 +349,69 @@ export class SQLiteStore implements IndexWriter, ContextRetriever {
       );
   }
 
+  public createBenchmarkRun(input: {
+    suiteName: string;
+    variants: string[];
+    metadata?: Record<string, unknown> | undefined;
+  }): { id: string } {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `
+        INSERT INTO benchmark_runs(id, suite_name, variants_json, started_at, metadata_json)
+        VALUES (?, ?, ?, ?, ?)
+      `
+      )
+      .run(id, input.suiteName, JSON.stringify(input.variants), now, JSON.stringify(input.metadata ?? {}));
+    return { id };
+  }
+
+  public finishBenchmarkRun(id: string): void {
+    this.db.prepare("UPDATE benchmark_runs SET finished_at = ? WHERE id = ?").run(new Date().toISOString(), id);
+  }
+
+  public recordBenchmarkResult(input: {
+    runId: string;
+    taskId: string;
+    variant: string;
+    resolved: boolean;
+    promptTokensEstimate: number;
+    contextTokensEstimate: number;
+    outputTokensEstimate: number;
+    durationMs: number;
+    testExitCode: number | null;
+    contextRecall: number;
+    artifacts: Record<string, unknown>;
+  }): { id: string } {
+    const id = randomUUID();
+    this.db
+      .prepare(
+        `
+        INSERT INTO benchmark_results(
+          id, run_id, task_id, variant, resolved, prompt_tokens_estimate, context_tokens_estimate,
+          output_tokens_estimate, duration_ms, test_exit_code, context_recall, artifacts_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+      )
+      .run(
+        id,
+        input.runId,
+        input.taskId,
+        input.variant,
+        input.resolved ? 1 : 0,
+        input.promptTokensEstimate,
+        input.contextTokensEstimate,
+        input.outputTokensEstimate,
+        Math.round(input.durationMs),
+        input.testExitCode,
+        input.contextRecall,
+        JSON.stringify(input.artifacts),
+        new Date().toISOString()
+      );
+    return { id };
+  }
+
   public async retrieve(input: TaskInput, maxCandidates: number): Promise<RetrievalCandidate[]> {
     const repoId = input.repoId;
     const memories = repoId === undefined ? [] : this.searchMemories(repoId, input.task, Math.ceil(maxCandidates / 2));

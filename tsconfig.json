@@ -8,6 +8,7 @@
     { "path": "packages/indexer" },
     { "path": "packages/worktrees" },
     { "path": "packages/agents" },
+    { "path": "packages/benchmarks" },
     { "path": "packages/evals" },
     { "path": "packages/observability" },
     { "path": "apps/daemon" },

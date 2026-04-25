@@ -1,0 +1,13 @@
+{
+  "name": "llm-mem-smoke",
+  "source": "Local llm-mem repository smoke suite",
+  "tasks": [
+    {
+      "id": "context-compiler-source-recall",
+      "prompt": "ContextCompiler compile createTaskSummary sectionFromCandidate citations",
+      "testCommand": "npm test -- tests/context-compiler.test.ts",
+      "goldFiles": ["packages/core/src/context-compiler.ts"],
+      "timeoutMs": 120000
+    }
+  ]
+}

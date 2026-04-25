@@ -1,0 +1,22 @@
+{
+  "name": "@llm-mem/benchmarks",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@llm-mem/core": "0.1.0",
+    "@llm-mem/indexer": "0.1.0",
+    "@llm-mem/storage": "0.1.0",
+    "zod": "^4.1.12"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  }
+}

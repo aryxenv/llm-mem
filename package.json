@@ -16,6 +16,7 @@
     "dev:daemon": "tsx apps/daemon/src/index.ts",
     "dev:mcp": "tsx apps/mcp-server/src/index.ts",
     "test": "vitest run",
+    "test:live": "vitest run --config vitest.live.config.ts",
     "typecheck": "tsc -b --pretty false",
     "check": "npm run typecheck && npm test"
   },

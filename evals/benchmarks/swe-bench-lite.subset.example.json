@@ -1,0 +1,5 @@
+{
+  "name": "swe-bench-lite-subset-example",
+  "source": "SWE-bench Lite subset manifest placeholder. Populate tasks from official SWE-bench metadata before running.",
+  "tasks": []
+}

@@ -192,6 +192,31 @@ export const MIGRATIONS: readonly string[] = [
     metadata_json TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS benchmark_runs (
+    id TEXT PRIMARY KEY,
+    suite_name TEXT NOT NULL,
+    variants_json TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    metadata_json TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS benchmark_results (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES benchmark_runs(id) ON DELETE CASCADE,
+    task_id TEXT NOT NULL,
+    variant TEXT NOT NULL,
+    resolved INTEGER NOT NULL,
+    prompt_tokens_estimate INTEGER NOT NULL,
+    context_tokens_estimate INTEGER NOT NULL,
+    output_tokens_estimate INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    test_exit_code INTEGER,
+    context_recall REAL NOT NULL,
+    artifacts_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
   INSERT OR IGNORE INTO schema_migrations(version, applied_at)
   VALUES (1, datetime('now'));
   `

@@ -24,6 +24,8 @@ const targets = [
   "packages/worktrees/tsconfig.tsbuildinfo",
   "packages/agents/dist",
   "packages/agents/tsconfig.tsbuildinfo",
+  "packages/benchmarks/dist",
+  "packages/benchmarks/tsconfig.tsbuildinfo",
   "packages/evals/dist",
   "packages/evals/tsconfig.tsbuildinfo",
   "packages/observability/dist",
