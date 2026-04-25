@@ -13,7 +13,9 @@
     { "path": "../../packages/protocol" },
     { "path": "../../packages/storage" },
     { "path": "../../packages/indexer" },
+    { "path": "../../packages/integrations" },
     { "path": "../../packages/worktrees" },
+    { "path": "../mcp-server" },
     { "path": "../daemon" }
   ]
 }

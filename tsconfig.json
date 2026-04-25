@@ -9,6 +9,7 @@
     { "path": "packages/worktrees" },
     { "path": "packages/agents" },
     { "path": "packages/benchmarks" },
+    { "path": "packages/integrations" },
     { "path": "packages/evals" },
     { "path": "packages/observability" },
     { "path": "apps/daemon" },

@@ -16,33 +16,53 @@ The thesis: token waste is usually caused by repeated discovery, stale summaries
 
 Most coding-agent token waste comes from rediscovering project structure: reading the same files, re-learning conventions, restating prior decisions, and dumping broad context because the agent cannot prove which small slice is enough. `llm-mem` reduces that waste by indexing the repo once and compiling a task-specific, source-grounded context pack before the coding agent starts.
 
-The practical flow is:
+The intended user experience is install-and-forget: configure a repo once, then keep launching your normal coding tool. For Copilot CLI, that means you should still type:
 
-1. Index the repo.
-2. Ask `llm-mem` for a context pack for the task.
-3. Give that pack to Copilot CLI, Claude Code, Codex, OpenCode, or another coding tool.
-4. Compare quality and token/cost telemetry against a baseline run without `llm-mem`.
+```powershell
+copilot
+```
 
-Manual Copilot CLI workflow:
+Project-local integration:
 
 ```powershell
 npm install
 npm run build
 
-node apps\cli\dist\index.js init
-node apps\cli\dist\index.js index
-node apps\cli\dist\index.js context "Fix the cache invalidation bug" --budget 8000 > .llm-mem\context-pack.json
-
-copilot --model gpt-5.5 --allow-all-tools --no-ask-user -p "Use .llm-mem/context-pack.json as source-grounded context, then fix the task."
+node apps\cli\dist\index.js integrate copilot install
+copilot
 ```
 
-Convenience workflow:
+The install command:
+
+1. Initializes and indexes the repository.
+2. Adds a project-local `.mcp.json` entry for the `llm-mem` MCP server.
+3. Adds a marked block to `.github\copilot-instructions.md` telling Copilot to call `llm_mem.context_pack` before coding tasks.
+4. Preserves the existing Copilot CLI flow; no PATH hijacking or replacement `copilot` binary is required.
+
+Inspect or remove the integration:
+
+```powershell
+node apps\cli\dist\index.js integrate copilot status
+node apps\cli\dist\index.js integrate copilot uninstall
+```
+
+Use `--dry-run` to preview file changes without writing, and `--skip-index` if you do not want install to index immediately.
+
+Advanced/manual Copilot CLI workflow:
+
+```powershell
+node apps\cli\dist\index.js context "Fix the cache invalidation bug" --budget 8000 > .llm-mem\context-pack.json
+
+copilot --model gpt-5.5 --allow-all-tools --no-ask-user -p "Use .llm-mem\context-pack.json as source-grounded context, then fix the task."
+```
+
+Diagnostic non-interactive workflow:
 
 ```powershell
 node apps\cli\dist\index.js copilot run "Fix the cache invalidation bug" --budget 8000 --model gpt-5.5
 ```
 
-Use `--dry-run` to inspect the generated prompt and artifacts without invoking Copilot:
+Use `--dry-run` to inspect generated prompt artifacts without invoking Copilot:
 
 ```powershell
 node apps\cli\dist\index.js copilot run "Explain the ContextCompiler" --dry-run

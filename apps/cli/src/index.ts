@@ -15,6 +15,13 @@ import { ContextCompiler } from "@llm-mem/core";
 import { startDaemon } from "@llm-mem/daemon";
 import { EvalRunner, loadEvalDataset } from "@llm-mem/evals";
 import { RepositoryIndexer } from "@llm-mem/indexer";
+import {
+  defaultMcpCommand,
+  getCopilotIntegrationStatus,
+  installCopilotIntegration,
+  uninstallCopilotIntegration
+} from "@llm-mem/integrations";
+import { startMcpServer } from "@llm-mem/mcp-server";
 import { SQLiteStore } from "@llm-mem/storage";
 import { WorktreeManager } from "@llm-mem/worktrees";
 
@@ -275,6 +282,72 @@ benchmarkCommand
     console.log(renderMarkdownReport(report));
   });
 
+const integrateCommand = program.command("integrate").description("Install or inspect coding-tool integrations.");
+const integrateCopilotCommand = integrateCommand.command("copilot").description("Manage non-invasive Copilot CLI integration.");
+integrateCopilotCommand
+  .command("install")
+  .description("Install project-local Copilot MCP configuration and instructions.")
+  .option("--root <path>", "Repository root", process.cwd())
+  .option("--db <path>", "SQLite database path")
+  .option("--dry-run", "Show planned changes without writing files or indexing")
+  .option("--skip-index", "Do not index the repository during install")
+  .action(async (options: { root: string; db?: string; dryRun?: boolean; skipIndex?: boolean }) => {
+    const rootPath = path.resolve(options.root);
+    const dryRun = options.dryRun === true;
+    const skipIndex = options.skipIndex === true;
+    const mcpCommand = integrationMcpCommand(rootPath, options.db);
+    let indexResult: unknown = null;
+
+    if (!dryRun && !skipIndex) {
+      const store = openStore(rootPath, options.db);
+      const indexer = new RepositoryIndexer(store);
+      indexResult = await indexer.index(rootPath, await currentHead(rootPath));
+      store.close();
+    }
+
+    const result = await installCopilotIntegration({ rootPath, dryRun, mcpCommand });
+    printJson({
+      ...result,
+      indexed: indexResult,
+      nextCommand: "copilot",
+      message: dryRun
+        ? "Dry run complete. Re-run without --dry-run to install the Copilot integration."
+        : "Copilot integration installed. Keep using `copilot`; llm-mem is available through MCP and repo instructions."
+    });
+  });
+
+integrateCopilotCommand
+  .command("status")
+  .description("Show whether the project-local Copilot integration is installed.")
+  .option("--root <path>", "Repository root", process.cwd())
+  .option("--db <path>", "SQLite database path")
+  .action(async (options: { root: string; db?: string }) => {
+    const rootPath = path.resolve(options.root);
+    printJson(await getCopilotIntegrationStatus({ rootPath, mcpCommand: integrationMcpCommand(rootPath, options.db) }));
+  });
+
+integrateCopilotCommand
+  .command("uninstall")
+  .description("Remove only the llm-mem Copilot integration files/blocks.")
+  .option("--root <path>", "Repository root", process.cwd())
+  .option("--db <path>", "SQLite database path")
+  .option("--dry-run", "Show planned changes without writing files")
+  .action(async (options: { root: string; db?: string; dryRun?: boolean }) => {
+    const rootPath = path.resolve(options.root);
+    const dryRun = options.dryRun === true;
+    const result = await uninstallCopilotIntegration({
+      rootPath,
+      dryRun,
+      mcpCommand: integrationMcpCommand(rootPath, options.db)
+    });
+    printJson({
+      ...result,
+      message: dryRun
+        ? "Dry run complete. Re-run without --dry-run to uninstall the Copilot integration."
+        : "Copilot integration removed. Unrelated MCP servers and instructions were preserved."
+    });
+  });
+
 program
   .command("eval")
   .description("Run local context-pack evaluations.")
@@ -302,6 +375,19 @@ program
   .action(async (options: { port: string }) => {
     const handle = await startDaemon({ port: Number.parseInt(options.port, 10) });
     printJson({ url: handle.url, authToken: handle.authToken });
+  });
+
+const mcpCommand = program.command("mcp").description("Run llm-mem MCP server transports.");
+mcpCommand
+  .command("stdio")
+  .description("Start the llm-mem MCP server over stdio.")
+  .option("--root <path>", "Repository root", process.cwd())
+  .option("--db <path>", "SQLite database path")
+  .action((options: { root: string; db?: string }) => {
+    startMcpServer({
+      rootPath: path.resolve(options.root),
+      ...(options.db === undefined ? {} : { databasePath: path.resolve(options.db) })
+    });
   });
 
 await program.parseAsync(process.argv);
@@ -336,6 +422,29 @@ function openStore(rootPath: string, databasePath?: string): SQLiteStore {
 
 function defaultDatabasePath(rootPath: string): string {
   return path.join(rootPath, ".llm-mem", "llm-mem.db");
+}
+
+function integrationMcpCommand(rootPath: string, databasePath?: string): { command: string; args: string[] } {
+  const command = currentCliMcpCommand() ?? defaultMcpCommand(rootPath);
+  if (databasePath === undefined) {
+    return command;
+  }
+
+  return {
+    command: command.command,
+    args: [...command.args, "--db", path.resolve(databasePath)]
+  };
+}
+
+function currentCliMcpCommand(): { command: string; args: string[] } | undefined {
+  if (process.argv[1] === undefined || path.extname(process.argv[1]) !== ".js") {
+    return undefined;
+  }
+
+  return {
+    command: process.execPath,
+    args: [path.resolve(process.argv[1]), "mcp", "stdio", "--root", "."]
+  };
 }
 
 async function currentHead(rootPath: string): Promise<string | undefined> {

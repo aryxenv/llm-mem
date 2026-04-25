@@ -11,6 +11,8 @@
     "@llm-mem/daemon": "0.1.0",
     "@llm-mem/evals": "0.1.0",
     "@llm-mem/indexer": "0.1.0",
+    "@llm-mem/integrations": "0.1.0",
+    "@llm-mem/mcp-server": "0.1.0",
     "@llm-mem/protocol": "0.1.0",
     "@llm-mem/storage": "0.1.0",
     "@llm-mem/worktrees": "0.1.0",
