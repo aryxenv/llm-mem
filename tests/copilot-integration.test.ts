@@ -50,6 +50,8 @@ describe("Copilot integration", () => {
     const skill = await readFile(path.join(repoDir, COPILOT_SKILL_FILE), "utf8");
     expect(skill).toContain("name: llm-mem");
     expect(skill).toContain("llm_mem.context_pack");
+    expect(skill).toContain("\"workingDirectory\": \"<current repository or worktree root>\"");
+    expect(skill).toContain("Do not run shell `llm-mem context` when the MCP tool is available.");
     await expect(fileExists(path.join(repoDir, COPILOT_INSTRUCTIONS_FILE))).resolves.toBe(false);
 
     const secondInstall = await installCopilotIntegration({ rootPath: repoDir, mcpCommand });
@@ -92,6 +94,42 @@ describe("Copilot integration", () => {
     const uninstallResult = await uninstallCopilotIntegration({ rootPath: repoDir, mcpCommand });
     expect(uninstallResult.changes.find((change) => change.path === skillPath)?.changed).toBe(false);
     expect(await readFile(skillPath, "utf8")).toBe(`${customSkill}\n`);
+  });
+
+  it("upgrades the previous generated skill template", async () => {
+    const repoDir = await tempRepo();
+    const skillPath = path.join(repoDir, COPILOT_SKILL_FILE);
+    await mkdir(path.dirname(skillPath), { recursive: true });
+    await writeFile(
+      skillPath,
+      [
+        "---",
+        "name: llm-mem",
+        "description: Use llm-mem context packs before coding in this repository. Trigger when editing, debugging, explaining, refactoring, or testing project code.",
+        "---",
+        "",
+        "# llm-mem",
+        "",
+        "Use llm-mem as a local context optimization layer. Do not replace normal Copilot behavior.",
+        "",
+        "Before code edits or repo-specific answers:",
+        "",
+        "1. Call `llm_mem.context_pack` with the user's task and current working directory.",
+        "2. Prefer cited files, constraints, memories, and tests from the context pack.",
+        "3. If context is insufficient, retrieve a narrower expansion instead of scanning unrelated files.",
+        "4. After durable decisions or conventions are discovered, call `llm_mem.remember` with citations.",
+        "",
+        "Keep outputs concise and source-grounded. Token savings only count when task quality is preserved."
+      ].join("\n") + "\n",
+      "utf8"
+    );
+
+    const result = await installCopilotIntegration({ rootPath: repoDir, mcpCommand });
+
+    expect(result.changes.find((change) => change.path === skillPath)?.action).toBe("update");
+    const upgraded = await readFile(skillPath, "utf8");
+    expect(upgraded).toContain("## Required first move");
+    expect(upgraded).toContain("Do not run shell `llm-mem context` when the MCP tool is available.");
   });
 
   it("uninstalls only the llm-mem MCP entry, skill, and marked instruction block", async () => {

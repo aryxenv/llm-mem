@@ -49,7 +49,7 @@ That is the normal flow. You keep typing `copilot`; `llm-mem` is available under
 
 1. Initializes and indexes the repository.
 2. Adds a project-local `.mcp.json` entry for the `llm-mem` MCP server.
-3. Adds `.github\skills\llm-mem\SKILL.md`, a lean skill that tells Copilot when to call `llm_mem.context_pack`.
+3. Adds `.github\skills\llm-mem\SKILL.md`, a lean skill with the exact MCP call shape, context-pack usage rules, fallback behavior, and anti-patterns.
 4. Leaves `.github\copilot-instructions.md` untouched by default so org/team instruction files stay clean.
 5. Preserves the existing Copilot CLI flow; no PATH hijacking or replacement `copilot` binary is required.
 
