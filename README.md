@@ -4,6 +4,8 @@
 
 The thesis: token waste is usually caused by repeated discovery, stale summaries, duplicated agent work, and unproven context sufficiency. `llm-mem` attacks those causes with structural indexing, proof-carrying context packs, semantic patch memory, worktree orchestration, and evaluation-driven optimization.
 
+Copilot CLI benchmark showed **22.7% fewer mean Copilot tokens**.
+
 > [!NOTE]
 > Currently only supporting **Copilot CLI**.
 
