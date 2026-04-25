@@ -111,6 +111,6 @@ $env:LLM_MEM_LIVE_COPILOT=1
 npm run test:live
 ```
 
-## Status
+## Contributions
 
-This repository is in early implementation. The first milestone is a working local MVP that can index a repo, store source-grounded memory, produce context packs, expose CLI/MCP surfaces, manage safe worktree leases, and measure token savings against quality. The next focus is credible live benchmarking against Copilot CLI and SWE-bench-style task suites.
+Contributions are welcome! This repository is in early implementation. The first milestone is a working local MVP that can index a repo, store source-grounded memory, produce context packs, expose CLI/MCP surfaces, manage safe worktree leases, and measure token savings against quality. The next focus is credible live benchmarking against Copilot CLI and SWE-bench-style task suites.
