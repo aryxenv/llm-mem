@@ -21,12 +21,12 @@ Most coding-agent token waste comes from rediscovering project structure: readin
 
 The intended user experience is install-and-forget: install the `llm-mem` CLI once for your user/machine, opt in each repository explicitly, then keep launching Copilot CLI normally.
 
-| Layer | Scope | What it does |
-| --- | --- | --- |
-| `llm-mem` CLI | Global/user-level | Makes the `llm-mem` command available on PATH for any repo. |
-| `.llm-mem/` index | Project-specific | Stores that repo's local SQLite index, context packs, and benchmark artifacts. |
-| `.mcp.json` + `.github\skills\llm-mem\SKILL.md` | Project-specific | Opts that repo into Copilot + `llm-mem` integration. |
-| `copilot` command | Unchanged | You still start Copilot normally; no PATH hijack or replacement binary. |
+| Layer                                           | Scope             | What it does                                                                   |
+| ----------------------------------------------- | ----------------- | ------------------------------------------------------------------------------ |
+| `llm-mem` CLI                                   | Global/user-level | Makes the `llm-mem` command available on PATH for any repo.                    |
+| `.llm-mem/` index                               | Project-specific  | Stores that repo's local SQLite index, context packs, and benchmark artifacts. |
+| `.mcp.json` + `.github\skills\llm-mem\SKILL.md` | Project-specific  | Opts that repo into Copilot + `llm-mem` integration.                           |
+| `copilot` command                               | Unchanged         | You still start Copilot normally; no PATH hijack or replacement binary.        |
 
 Install the CLI once from this source checkout:
 
@@ -105,7 +105,7 @@ Artifacts are written under `.llm-mem/runs/`.
 
 Unit tests only prove the implementation works. They do not prove the token-efficiency thesis. For that, use A/B benchmark runs.
 
-**Current live benchmark result:** after fixing retrieval and compacting context prompts, this repo's 5-run Copilot CLI benchmark showed **22.7% fewer mean Copilot tokens** with `llm-mem-context`. `baseline-copilot` averaged **229,378** total Copilot tokens, while `llm-mem-context` averaged **177,201**, with both variants completing successfully in **5/5** runs. The first run of this same benchmark had regressed by 23.9%; see [TRANSPARENCY.md](TRANSPARENCY.md) for the full before/after method, raw numbers, and limitations.
+**Current live benchmark result:** This repo's 5-run Copilot CLI benchmark showed **22.7% fewer mean Copilot tokens** with `llm-mem-context`. `baseline-copilot` averaged **229,378** total Copilot tokens, while `llm-mem-context` averaged **177,201**, with both variants completing successfully in **5/5** runs. The first run of this same benchmark had regressed by 23.9%; see [TRANSPARENCY.md](TRANSPARENCY.md) for the full before/after method, raw numbers, and limitations.
 
 The compared variants are:
 
