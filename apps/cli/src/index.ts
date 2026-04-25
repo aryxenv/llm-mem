@@ -16,6 +16,7 @@ import { startDaemon } from "@llm-mem/daemon";
 import { EvalRunner, loadEvalDataset } from "@llm-mem/evals";
 import { RepositoryIndexer } from "@llm-mem/indexer";
 import {
+  type CopilotGuidanceMode,
   defaultMcpCommand,
   getCopilotIntegrationStatus,
   installCopilotIntegration,
@@ -289,13 +290,24 @@ integrateCopilotCommand
   .description("Install project-local Copilot MCP configuration and instructions.")
   .option("--root <path>", "Repository root", process.cwd())
   .option("--db <path>", "SQLite database path")
+  .option("--guidance <mode>", "Guidance mode: skill, instructions, both, none", "skill")
+  .option("--use-current-cli", "Generate MCP config with this running CLI path instead of llm-mem from PATH")
   .option("--dry-run", "Show planned changes without writing files or indexing")
   .option("--skip-index", "Do not index the repository during install")
-  .action(async (options: { root: string; db?: string; dryRun?: boolean; skipIndex?: boolean }) => {
+  .action(
+    async (options: {
+      root: string;
+      db?: string;
+      guidance: string;
+      useCurrentCli?: boolean;
+      dryRun?: boolean;
+      skipIndex?: boolean;
+    }) => {
     const rootPath = path.resolve(options.root);
     const dryRun = options.dryRun === true;
     const skipIndex = options.skipIndex === true;
-    const mcpCommand = integrationMcpCommand(rootPath, options.db);
+    const guidanceMode = parseGuidanceMode(options.guidance);
+    const mcpCommand = integrationMcpCommand(rootPath, options.db, options.useCurrentCli === true);
     let indexResult: unknown = null;
 
     if (!dryRun && !skipIndex) {
@@ -305,16 +317,17 @@ integrateCopilotCommand
       store.close();
     }
 
-    const result = await installCopilotIntegration({ rootPath, dryRun, mcpCommand });
+    const result = await installCopilotIntegration({ rootPath, dryRun, mcpCommand, guidanceMode });
     printJson({
       ...result,
       indexed: indexResult,
       nextCommand: "copilot",
       message: dryRun
         ? "Dry run complete. Re-run without --dry-run to install the Copilot integration."
-        : "Copilot integration installed. Keep using `copilot`; llm-mem is available through MCP and repo instructions."
+        : "Copilot integration installed. Keep using `copilot`; llm-mem is available through MCP and project skill guidance."
     });
-  });
+    }
+  );
 
 integrateCopilotCommand
   .command("status")
@@ -344,7 +357,7 @@ integrateCopilotCommand
       ...result,
       message: dryRun
         ? "Dry run complete. Re-run without --dry-run to uninstall the Copilot integration."
-        : "Copilot integration removed. Unrelated MCP servers and instructions were preserved."
+        : "Copilot integration removed. Unrelated MCP servers, skills, and instructions were preserved."
     });
   });
 
@@ -424,8 +437,12 @@ function defaultDatabasePath(rootPath: string): string {
   return path.join(rootPath, ".llm-mem", "llm-mem.db");
 }
 
-function integrationMcpCommand(rootPath: string, databasePath?: string): { command: string; args: string[] } {
-  const command = currentCliMcpCommand() ?? defaultMcpCommand(rootPath);
+function integrationMcpCommand(
+  rootPath: string,
+  databasePath?: string,
+  useCurrentCli = false
+): { command: string; args: string[] } {
+  const command = useCurrentCli ? currentCliMcpCommand() ?? defaultMcpCommand(rootPath) : defaultMcpCommand(rootPath);
   if (databasePath === undefined) {
     return command;
   }
@@ -434,6 +451,15 @@ function integrationMcpCommand(rootPath: string, databasePath?: string): { comma
     command: command.command,
     args: [...command.args, "--db", path.resolve(databasePath)]
   };
+}
+
+function parseGuidanceMode(input: string): CopilotGuidanceMode {
+  const allowed = new Set(["skill", "instructions", "both", "none"]);
+  if (!allowed.has(input)) {
+    throw new Error("Guidance mode must be one of: skill, instructions, both, none.");
+  }
+
+  return input as CopilotGuidanceMode;
 }
 
 function currentCliMcpCommand(): { command: string; args: string[] } | undefined {

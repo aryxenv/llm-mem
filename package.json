@@ -15,6 +15,7 @@
     "dev:cli": "tsx apps/cli/src/index.ts",
     "dev:daemon": "tsx apps/daemon/src/index.ts",
     "dev:mcp": "tsx apps/mcp-server/src/index.ts",
+    "link:cli": "npm link --workspace @llm-mem/cli",
     "test": "vitest run",
     "test:live": "vitest run --config vitest.live.config.ts",
     "typecheck": "tsc -b --pretty false",

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   COPILOT_INSTRUCTIONS_FILE,
   COPILOT_MCP_CONFIG_FILE,
+  COPILOT_SKILL_FILE,
   LLM_MEM_INSTRUCTIONS_START,
   defaultMcpCommand,
   installCopilotIntegration,
@@ -19,7 +20,7 @@ afterEach(async () => {
 });
 
 describe("Copilot integration", () => {
-  it("installs MCP config and repository instructions without replacing existing servers", async () => {
+  it("installs MCP config and project skill without replacing existing servers", async () => {
     const repoDir = await tempRepo();
     const mcpPath = path.join(repoDir, COPILOT_MCP_CONFIG_FILE);
     await writeFile(
@@ -46,14 +47,54 @@ describe("Copilot integration", () => {
     expect(mcpConfig.mcpServers["llm-mem"]?.command).toBe("llm-mem");
     expect(mcpConfig.mcpServers["llm-mem"]?.args).toEqual(["mcp", "stdio", "--root", "."]);
 
-    const instructions = await readFile(path.join(repoDir, COPILOT_INSTRUCTIONS_FILE), "utf8");
-    expect(instructions).toContain("llm_mem.context_pack");
+    const skill = await readFile(path.join(repoDir, COPILOT_SKILL_FILE), "utf8");
+    expect(skill).toContain("name: llm-mem");
+    expect(skill).toContain("llm_mem.context_pack");
+    await expect(fileExists(path.join(repoDir, COPILOT_INSTRUCTIONS_FILE))).resolves.toBe(false);
 
     const secondInstall = await installCopilotIntegration({ rootPath: repoDir, mcpCommand });
     expect(secondInstall.changes.every((change) => !change.changed)).toBe(true);
   });
 
-  it("uninstalls only the llm-mem MCP entry and marked instruction block", async () => {
+  it("can install instruction guidance for compatibility", async () => {
+    const repoDir = await tempRepo();
+
+    const result = await installCopilotIntegration({ rootPath: repoDir, mcpCommand, guidanceMode: "instructions" });
+
+    expect(result.status.installed).toBe(true);
+    await expect(fileExists(path.join(repoDir, COPILOT_SKILL_FILE))).resolves.toBe(false);
+    const instructions = await readFile(path.join(repoDir, COPILOT_INSTRUCTIONS_FILE), "utf8");
+    expect(instructions).toContain(LLM_MEM_INSTRUCTIONS_START);
+    expect(instructions).toContain("llm_mem.context_pack");
+  });
+
+  it("refuses to overwrite an existing custom llm-mem skill", async () => {
+    const repoDir = await tempRepo();
+    const skillPath = path.join(repoDir, COPILOT_SKILL_FILE);
+    const customSkill = [
+      "---",
+      "name: llm-mem",
+      "description: Team-owned llm-mem workflow.",
+      "---",
+      "",
+      "# Custom llm-mem",
+      "",
+      "Call `llm_mem.context_pack`, then follow team policy."
+    ].join("\n");
+    await mkdir(path.dirname(skillPath), { recursive: true });
+    await writeFile(skillPath, `${customSkill}\n`, "utf8");
+
+    await expect(installCopilotIntegration({ rootPath: repoDir, mcpCommand })).rejects.toThrow(
+      "Refusing to overwrite user content"
+    );
+    expect(await readFile(skillPath, "utf8")).toBe(`${customSkill}\n`);
+
+    const uninstallResult = await uninstallCopilotIntegration({ rootPath: repoDir, mcpCommand });
+    expect(uninstallResult.changes.find((change) => change.path === skillPath)?.changed).toBe(false);
+    expect(await readFile(skillPath, "utf8")).toBe(`${customSkill}\n`);
+  });
+
+  it("uninstalls only the llm-mem MCP entry, skill, and marked instruction block", async () => {
     const repoDir = await tempRepo();
     await writeFile(
       path.join(repoDir, COPILOT_MCP_CONFIG_FILE),
@@ -71,7 +112,7 @@ describe("Copilot integration", () => {
     const instructionsPath = path.join(repoDir, COPILOT_INSTRUCTIONS_FILE);
     await mkdir(path.dirname(instructionsPath), { recursive: true });
     await writeFile(instructionsPath, "Keep tests green.\n", "utf8");
-    await installCopilotIntegration({ rootPath: repoDir, mcpCommand });
+    await installCopilotIntegration({ rootPath: repoDir, mcpCommand, guidanceMode: "both" });
 
     const result = await uninstallCopilotIntegration({ rootPath: repoDir, mcpCommand });
 
@@ -81,6 +122,7 @@ describe("Copilot integration", () => {
     };
     expect(mcpConfig.mcpServers["llm-mem"]).toBeUndefined();
     expect(mcpConfig.mcpServers.existing).toBeDefined();
+    await expect(fileExists(path.join(repoDir, COPILOT_SKILL_FILE))).resolves.toBe(false);
     const instructions = await readFile(instructionsPath, "utf8");
     expect(instructions).toBe("Keep tests green.\n");
   });
@@ -107,16 +149,17 @@ describe("Copilot integration", () => {
     });
   });
 
-  it("removes generated instructions file when no user content remains", async () => {
+  it("removes generated skill and MCP config when no user content remains", async () => {
     const repoDir = await tempRepo();
     await installCopilotIntegration({ rootPath: repoDir, mcpCommand });
-    const instructionsPath = path.join(repoDir, COPILOT_INSTRUCTIONS_FILE);
-    expect(await readFile(instructionsPath, "utf8")).toContain(LLM_MEM_INSTRUCTIONS_START);
+    const skillPath = path.join(repoDir, COPILOT_SKILL_FILE);
+    expect(await readFile(skillPath, "utf8")).toContain("name: llm-mem");
 
     await uninstallCopilotIntegration({ rootPath: repoDir, mcpCommand });
 
-    await expect(fileExists(instructionsPath)).resolves.toBe(false);
+    await expect(fileExists(path.join(repoDir, COPILOT_INSTRUCTIONS_FILE))).resolves.toBe(false);
     await expect(fileExists(path.join(repoDir, COPILOT_MCP_CONFIG_FILE))).resolves.toBe(false);
+    await expect(fileExists(skillPath)).resolves.toBe(false);
   });
 });
 

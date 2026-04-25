@@ -336,7 +336,7 @@
       <h2>The daily command should not change.</h2>
       <pre><code>llm-mem integrate copilot install
 copilot</code></pre>
-      <p>The install step configures project MCP + Copilot instructions. After that, Copilot can call <code>llm_mem.context_pack</code> during normal sessions.</p>
+      <p>The install step configures project MCP + a lean project skill. After that, Copilot can call <code>llm_mem.context_pack</code> during normal sessions.</p>
     </section>
 
     <section class="slide">
@@ -344,9 +344,9 @@ copilot</code></pre>
       <h2>Small, reversible project files.</h2>
       <div class="grid">
         <div class="card"><b>.mcp.json</b>Adds an <code>llm-mem</code> MCP server entry. Existing MCP servers are preserved.</div>
-        <div class="card"><b>.github/copilot-instructions.md</b>Adds a marked block telling Copilot to use llm-mem before coding tasks.</div>
+        <div class="card"><b>.github/skills/llm-mem/SKILL.md</b>Adds clean project guidance without touching org-owned instruction files.</div>
         <div class="card"><b>.llm-mem/</b>Stores the local SQLite index, context packs, and benchmark artifacts.</div>
-        <div class="card"><b>Uninstall</b>Removes only the llm-mem MCP entry and marked instruction block.</div>
+        <div class="card"><b>Uninstall</b>Removes only the llm-mem MCP entry, project skill, and optional marked instruction block.</div>
       </div>
     </section>
 

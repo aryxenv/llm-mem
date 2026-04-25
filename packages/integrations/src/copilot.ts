@@ -3,9 +3,11 @@ import path from "node:path";
 
 export const COPILOT_MCP_CONFIG_FILE = ".mcp.json";
 export const COPILOT_INSTRUCTIONS_FILE = path.join(".github", "copilot-instructions.md");
+export const COPILOT_SKILL_FILE = path.join(".github", "skills", "llm-mem", "SKILL.md");
 export const LLM_MEM_MCP_SERVER_NAME = "llm-mem";
 export const LLM_MEM_INSTRUCTIONS_START = "<!-- llm-mem:start -->";
 export const LLM_MEM_INSTRUCTIONS_END = "<!-- llm-mem:end -->";
+export type CopilotGuidanceMode = "skill" | "instructions" | "both" | "none";
 
 export interface CommandSpec {
   command: string;
@@ -22,14 +24,18 @@ export interface CopilotIntegrationOptions {
   rootPath: string;
   dryRun?: boolean;
   mcpCommand?: CommandSpec;
+  guidanceMode?: CopilotGuidanceMode;
 }
 
 export interface CopilotIntegrationStatus {
   rootPath: string;
   mcpConfigPath: string;
+  skillPath: string;
   instructionsPath: string;
   mcpServerInstalled: boolean;
+  skillInstalled: boolean;
   instructionsInstalled: boolean;
+  guidanceInstalled: boolean;
   installed: boolean;
 }
 
@@ -54,15 +60,16 @@ export async function installCopilotIntegration(
 ): Promise<CopilotIntegrationResult> {
   const rootPath = path.resolve(options.rootPath);
   const dryRun = options.dryRun === true;
+  const guidanceMode = options.guidanceMode ?? "skill";
   const mcpChange = await installMcpConfig({ ...options, rootPath, dryRun });
-  const instructionsChange = await installInstructions({ rootPath, dryRun });
+  const guidanceChanges = await installGuidance({ rootPath, dryRun, guidanceMode });
   const status = await getCopilotIntegrationStatus({ rootPath });
 
   return {
     rootPath,
     dryRun,
     status,
-    changes: [mcpChange, instructionsChange]
+    changes: [mcpChange, ...guidanceChanges]
   };
 }
 
@@ -72,6 +79,7 @@ export async function uninstallCopilotIntegration(
   const rootPath = path.resolve(options.rootPath);
   const dryRun = options.dryRun === true;
   const mcpChange = await uninstallMcpConfig({ rootPath, dryRun });
+  const skillChange = await uninstallSkill({ rootPath, dryRun });
   const instructionsChange = await uninstallInstructions({ rootPath, dryRun });
   const status = await getCopilotIntegrationStatus({ rootPath });
 
@@ -79,7 +87,7 @@ export async function uninstallCopilotIntegration(
     rootPath,
     dryRun,
     status,
-    changes: [mcpChange, instructionsChange]
+    changes: [mcpChange, skillChange, instructionsChange]
   };
 }
 
@@ -88,19 +96,26 @@ export async function getCopilotIntegrationStatus(
 ): Promise<CopilotIntegrationStatus> {
   const rootPath = path.resolve(options.rootPath);
   const mcpConfigPath = path.join(rootPath, COPILOT_MCP_CONFIG_FILE);
+  const skillPath = path.join(rootPath, COPILOT_SKILL_FILE);
   const instructionsPath = path.join(rootPath, COPILOT_INSTRUCTIONS_FILE);
   const mcpConfig = await readJsonFileIfExists(mcpConfigPath);
+  const skill = await readTextFileIfExists(skillPath);
   const instructions = await readTextFileIfExists(instructionsPath);
   const mcpServers = isJsonObject(mcpConfig?.mcpServers) ? mcpConfig.mcpServers : {};
   const installedServer = mcpServers[LLM_MEM_MCP_SERVER_NAME];
+  const skillInstalled = hasSkillContent(skill ?? "");
+  const instructionsInstalled = hasInstructionBlock(instructions ?? "");
 
   return {
     rootPath,
     mcpConfigPath,
+    skillPath,
     instructionsPath,
     mcpServerInstalled: isJsonObject(installedServer),
-    instructionsInstalled: hasInstructionBlock(instructions ?? ""),
-    installed: isJsonObject(installedServer) && hasInstructionBlock(instructions ?? "")
+    skillInstalled,
+    instructionsInstalled,
+    guidanceInstalled: skillInstalled || instructionsInstalled,
+    installed: isJsonObject(installedServer) && (skillInstalled || instructionsInstalled)
   };
 }
 
@@ -125,6 +140,13 @@ export function defaultMcpCommand(_rootPath: string): CommandSpec {
 function integrationPaths(rootPath: string): { mcpConfigPath: string; instructionsPath: string } {
   return {
     mcpConfigPath: path.join(rootPath, COPILOT_MCP_CONFIG_FILE),
+    instructionsPath: path.join(rootPath, COPILOT_INSTRUCTIONS_FILE)
+  };
+}
+
+function guidancePaths(rootPath: string): { skillPath: string; instructionsPath: string } {
+  return {
+    skillPath: path.join(rootPath, COPILOT_SKILL_FILE),
     instructionsPath: path.join(rootPath, COPILOT_INSTRUCTIONS_FILE)
   };
 }
@@ -179,10 +201,66 @@ async function uninstallMcpConfig(options: Required<Pick<CopilotIntegrationOptio
   return { path: mcpConfigPath, action: changed ? "update" : "none", changed };
 }
 
+async function installGuidance(
+  options: Required<Pick<CopilotIntegrationOptions, "rootPath" | "dryRun">> & {
+    guidanceMode: CopilotGuidanceMode;
+  }
+): Promise<IntegrationFileChange[]> {
+  switch (options.guidanceMode) {
+    case "skill":
+      return [await installSkill(options)];
+    case "instructions":
+      return [await installInstructions(options)];
+    case "both":
+      return [await installSkill(options), await installInstructions(options)];
+    case "none":
+      return [];
+  }
+}
+
+async function installSkill(
+  options: Required<Pick<CopilotIntegrationOptions, "rootPath" | "dryRun">>
+): Promise<IntegrationFileChange> {
+  const { skillPath } = guidancePaths(options.rootPath);
+  const existingText = await readTextFileIfExists(skillPath);
+  const nextText = buildSkillContent();
+  if (existingText !== undefined && !isGeneratedSkillContent(existingText)) {
+    throw new Error(
+      `${skillPath} already exists and does not match the generated llm-mem skill. Refusing to overwrite user content. Remove it or use --guidance instructions.`
+    );
+  }
+
+  const changed = existingText !== nextText;
+  const action = existingText === undefined ? "create" : changed ? "update" : "none";
+
+  if (changed && options.dryRun !== true) {
+    await mkdir(path.dirname(skillPath), { recursive: true });
+    await writeFile(skillPath, nextText, "utf8");
+  }
+
+  return { path: skillPath, action, changed };
+}
+
+async function uninstallSkill(
+  options: Required<Pick<CopilotIntegrationOptions, "rootPath" | "dryRun">>
+): Promise<IntegrationFileChange> {
+  const { skillPath } = guidancePaths(options.rootPath);
+  const existingText = await readTextFileIfExists(skillPath);
+  if (existingText === undefined || !isGeneratedSkillContent(existingText)) {
+    return { path: skillPath, action: "none", changed: false };
+  }
+
+  if (options.dryRun !== true) {
+    await rm(skillPath, { force: true });
+  }
+
+  return { path: skillPath, action: "delete", changed: true };
+}
+
 async function installInstructions(
   options: Required<Pick<CopilotIntegrationOptions, "rootPath" | "dryRun">>
 ): Promise<IntegrationFileChange> {
-  const { instructionsPath } = integrationPaths(options.rootPath);
+  const { instructionsPath } = guidancePaths(options.rootPath);
   const existingText = await readTextFileIfExists(instructionsPath);
   const nextText = upsertInstructionBlock(existingText ?? "");
   const changed = existingText !== nextText;
@@ -199,7 +277,7 @@ async function installInstructions(
 async function uninstallInstructions(
   options: Required<Pick<CopilotIntegrationOptions, "rootPath" | "dryRun">>
 ): Promise<IntegrationFileChange> {
-  const { instructionsPath } = integrationPaths(options.rootPath);
+  const { instructionsPath } = guidancePaths(options.rootPath);
   const existingText = await readTextFileIfExists(instructionsPath);
   if (existingText === undefined) {
     return { path: instructionsPath, action: "none", changed: false };
@@ -283,12 +361,42 @@ function hasInstructionBlock(input: string): boolean {
   return start !== -1 && end > start;
 }
 
+function hasSkillContent(input: string): boolean {
+  return input.includes("name: llm-mem") && input.includes("llm_mem.context_pack");
+}
+
+function isGeneratedSkillContent(input: string): boolean {
+  return input === buildSkillContent();
+}
+
+function buildSkillContent(): string {
+  return [
+    "---",
+    "name: llm-mem",
+    "description: Use llm-mem context packs before coding in this repository. Trigger when editing, debugging, explaining, refactoring, or testing project code.",
+    "---",
+    "",
+    "# llm-mem",
+    "",
+    "Use llm-mem as a local context optimization layer. Do not replace normal Copilot behavior.",
+    "",
+    "Before code edits or repo-specific answers:",
+    "",
+    "1. Call `llm_mem.context_pack` with the user's task and current working directory.",
+    "2. Prefer cited files, constraints, memories, and tests from the context pack.",
+    "3. If context is insufficient, retrieve a narrower expansion instead of scanning unrelated files.",
+    "4. After durable decisions or conventions are discovered, call `llm_mem.remember` with citations.",
+    "",
+    "Keep outputs concise and source-grounded. Token savings only count when task quality is preserved."
+  ].join("\n") + "\n";
+}
+
 function buildInstructionBlock(): string {
   return [
     LLM_MEM_INSTRUCTIONS_START,
     "## llm-mem context optimization",
     "",
-    "This repository is configured to use llm-mem as a local-first context compiler.",
+    "This repository is configured to use llm-mem as a local-first context compiler. Prefer the project skill at `.github/skills/llm-mem/SKILL.md` when available.",
     "",
     "Before making code changes for a user task:",
     "",
