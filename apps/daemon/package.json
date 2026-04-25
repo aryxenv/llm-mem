@@ -1,0 +1,26 @@
+{
+  "name": "@llm-mem/daemon",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@llm-mem/agents": "0.1.0",
+    "@llm-mem/core": "0.1.0",
+    "@llm-mem/evals": "0.1.0",
+    "@llm-mem/indexer": "0.1.0",
+    "@llm-mem/observability": "0.1.0",
+    "@llm-mem/protocol": "0.1.0",
+    "@llm-mem/storage": "0.1.0",
+    "@llm-mem/worktrees": "0.1.0"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  }
+}

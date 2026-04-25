@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/protocol" },
+    { "path": "packages/security" },
+    { "path": "packages/storage" },
+    { "path": "packages/indexer" },
+    { "path": "packages/worktrees" },
+    { "path": "packages/agents" },
+    { "path": "packages/evals" },
+    { "path": "packages/observability" },
+    { "path": "apps/daemon" },
+    { "path": "apps/mcp-server" },
+    { "path": "apps/cli" }
+  ]
+}

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.llm-mem/
+*.tsbuildinfo
+*.log
+*.local
+.env
+.env.*
+!.env.example

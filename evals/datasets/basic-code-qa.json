@@ -1,0 +1,9 @@
+[
+  {
+    "id": "basic-context-compiler-qa",
+    "taskType": "codebase_qa",
+    "prompt": "ContextCompiler compile createTaskSummary sectionFromCandidate citations",
+    "goldFiles": ["packages/core/src/context-compiler.ts"],
+    "metrics": ["token_budget_used", "context_recall", "citation_accuracy"]
+  }
+]

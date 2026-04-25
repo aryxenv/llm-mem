@@ -1,0 +1,11 @@
+.git/
+node_modules/
+dist/
+coverage/
+.llm-mem/
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12

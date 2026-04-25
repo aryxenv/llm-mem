@@ -1,0 +1,38 @@
+{
+  "name": "llm-mem",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first context compiler for token-efficient coding agents.",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "plugins/official/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "node scripts/clean.mjs",
+    "dev:cli": "tsx apps/cli/src/index.ts",
+    "dev:daemon": "tsx apps/daemon/src/index.ts",
+    "dev:mcp": "tsx apps/mcp-server/src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty false",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "commander": "^14.0.2",
+    "ignore": "^7.0.5",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.9.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
