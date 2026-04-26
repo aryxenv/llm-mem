@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-export const COPILOT_MCP_CONFIG_FILE = ".mcp.json";
+export const COPILOT_MCP_CONFIG_FILE = path.join(".vscode", "mcp.json");
 export const COPILOT_INSTRUCTIONS_FILE = path.join(".github", "copilot-instructions.md");
 export const COPILOT_SKILL_FILE = path.join(".github", "skills", "llm-mem", "SKILL.md");
 export const LLM_MEM_MCP_SERVER_NAME = "llm-mem";
@@ -47,10 +47,9 @@ export interface CopilotIntegrationResult {
 }
 
 interface CopilotMcpServerConfig {
-  type: "local";
+  type: "stdio";
   command: string;
   args: string[];
-  tools: string[];
 }
 
 type JsonObject = Record<string, unknown>;
@@ -101,8 +100,8 @@ export async function getCopilotIntegrationStatus(
   const mcpConfig = await readJsonFileIfExists(mcpConfigPath);
   const skill = await readTextFileIfExists(skillPath);
   const instructions = await readTextFileIfExists(instructionsPath);
-  const mcpServers = isJsonObject(mcpConfig?.mcpServers) ? mcpConfig.mcpServers : {};
-  const installedServer = mcpServers[LLM_MEM_MCP_SERVER_NAME];
+  const servers = isJsonObject(mcpConfig?.servers) ? mcpConfig.servers : {};
+  const installedServer = servers[LLM_MEM_MCP_SERVER_NAME];
   const skillInstalled = hasSkillContent(skill ?? "");
   const instructionsInstalled = hasInstructionBlock(instructions ?? "");
 
@@ -123,10 +122,9 @@ export function buildCopilotMcpServerConfig(rootPath: string, commandSpec?: Comm
   const resolvedCommand = commandSpec ?? defaultMcpCommand(rootPath);
 
   return {
-    type: "local",
+    type: "stdio",
     command: resolvedCommand.command,
-    args: resolvedCommand.args,
-    tools: ["*"]
+    args: resolvedCommand.args
   };
 }
 
@@ -165,6 +163,7 @@ async function installMcpConfig(options: Required<Pick<CopilotIntegrationOptions
   const action = existingText === undefined ? "create" : changed ? "update" : "none";
 
   if (changed && options.dryRun !== true) {
+    await mkdir(path.dirname(mcpConfigPath), { recursive: true });
     await writeFile(mcpConfigPath, nextText, "utf8");
   }
 
@@ -195,6 +194,7 @@ async function uninstallMcpConfig(options: Required<Pick<CopilotIntegrationOptio
   const changed = existingText !== nextText;
 
   if (changed && options.dryRun !== true) {
+    await mkdir(path.dirname(mcpConfigPath), { recursive: true });
     await writeFile(mcpConfigPath, nextText, "utf8");
   }
 
@@ -300,26 +300,30 @@ async function uninstallInstructions(
 }
 
 function mergeMcpServer(config: JsonObject, serverConfig: CopilotMcpServerConfig): JsonObject {
-  const servers = isJsonObject(config.mcpServers) ? { ...config.mcpServers } : {};
+  const servers = isJsonObject(config.servers) ? { ...config.servers } : {};
   servers[LLM_MEM_MCP_SERVER_NAME] = serverConfig;
-  return { ...config, mcpServers: servers };
+  return { inputs: [], ...config, servers };
 }
 
 function removeMcpServer(config: JsonObject): JsonObject {
-  if (!isJsonObject(config.mcpServers)) {
+  if (!isJsonObject(config.servers)) {
     return config;
   }
 
-  const servers = { ...config.mcpServers };
+  const servers = { ...config.servers };
   delete servers[LLM_MEM_MCP_SERVER_NAME];
-  return { ...config, mcpServers: servers };
+  return { ...config, servers };
 }
 
 function isEmptyMcpOnlyConfig(config: JsonObject): boolean {
+  const keys = Object.keys(config);
+  const hasOnlyMcpKeys = keys.every((key) => key === "servers" || key === "inputs");
+  const inputs = config.inputs;
   return (
-    Object.keys(config).length === 1 &&
-    isJsonObject(config.mcpServers) &&
-    Object.keys(config.mcpServers).length === 0
+    hasOnlyMcpKeys &&
+    isJsonObject(config.servers) &&
+    Object.keys(config.servers).length === 0 &&
+    (inputs === undefined || (Array.isArray(inputs) && inputs.length === 0))
   );
 }
 

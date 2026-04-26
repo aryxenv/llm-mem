@@ -23,13 +23,15 @@ describe("Copilot integration", () => {
   it("installs MCP config and project skill without replacing existing servers", async () => {
     const repoDir = await tempRepo();
     const mcpPath = path.join(repoDir, COPILOT_MCP_CONFIG_FILE);
+    await mkdir(path.dirname(mcpPath), { recursive: true });
     await writeFile(
       mcpPath,
       `${JSON.stringify(
         {
-          mcpServers: {
-            existing: { type: "local", command: "existing-mcp", args: [], tools: ["*"] }
-          }
+          servers: {
+            existing: { type: "stdio", command: "existing-mcp", args: [] }
+          },
+          inputs: []
         },
         null,
         2
@@ -41,11 +43,14 @@ describe("Copilot integration", () => {
 
     expect(result.status.installed).toBe(true);
     const mcpConfig = JSON.parse(await readFile(mcpPath, "utf8")) as {
-      mcpServers: Record<string, { command: string; args: string[] }>;
+      servers: Record<string, { type: string; command: string; args: string[] }>;
+      inputs: unknown[];
     };
-    expect(mcpConfig.mcpServers.existing?.command).toBe("existing-mcp");
-    expect(mcpConfig.mcpServers["llm-mem"]?.command).toBe("llm-mem");
-    expect(mcpConfig.mcpServers["llm-mem"]?.args).toEqual(["mcp", "stdio", "--root", "."]);
+    expect(mcpConfig.servers.existing?.command).toBe("existing-mcp");
+    expect(mcpConfig.servers["llm-mem"]?.type).toBe("stdio");
+    expect(mcpConfig.servers["llm-mem"]?.command).toBe("llm-mem");
+    expect(mcpConfig.servers["llm-mem"]?.args).toEqual(["mcp", "stdio", "--root", "."]);
+    expect(mcpConfig.inputs).toEqual([]);
 
     const skill = await readFile(path.join(repoDir, COPILOT_SKILL_FILE), "utf8");
     expect(skill).toContain("name: llm-mem");
@@ -138,13 +143,16 @@ describe("Copilot integration", () => {
 
   it("uninstalls only the llm-mem MCP entry, skill, and marked instruction block", async () => {
     const repoDir = await tempRepo();
+    const mcpPath = path.join(repoDir, COPILOT_MCP_CONFIG_FILE);
+    await mkdir(path.dirname(mcpPath), { recursive: true });
     await writeFile(
-      path.join(repoDir, COPILOT_MCP_CONFIG_FILE),
+      mcpPath,
       `${JSON.stringify(
         {
-          mcpServers: {
-            existing: { type: "local", command: "existing-mcp", args: [], tools: ["*"] }
-          }
+          servers: {
+            existing: { type: "stdio", command: "existing-mcp", args: [] }
+          },
+          inputs: []
         },
         null,
         2
@@ -160,10 +168,10 @@ describe("Copilot integration", () => {
 
     expect(result.status.installed).toBe(false);
     const mcpConfig = JSON.parse(await readFile(path.join(repoDir, COPILOT_MCP_CONFIG_FILE), "utf8")) as {
-      mcpServers: Record<string, unknown>;
+      servers: Record<string, unknown>;
     };
-    expect(mcpConfig.mcpServers["llm-mem"]).toBeUndefined();
-    expect(mcpConfig.mcpServers.existing).toBeDefined();
+    expect(mcpConfig.servers["llm-mem"]).toBeUndefined();
+    expect(mcpConfig.servers.existing).toBeDefined();
     await expect(fileExists(path.join(repoDir, COPILOT_SKILL_FILE))).resolves.toBe(false);
     const instructions = await readFile(instructionsPath, "utf8");
     expect(instructions).toBe("Keep tests green.\n");
