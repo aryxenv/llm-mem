@@ -2,7 +2,9 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export const COPILOT_MCP_CONFIG_FILE = ".mcp.json";
+export const GIT_IGNORE_FILE = ".gitignore";
 export const LLM_MEM_IGNORE_FILE = ".llm-memignore";
+export const README_FILE = "README.md";
 export const COPILOT_INSTRUCTIONS_FILE = path.join(
   ".github",
   "copilot-instructions.md",
@@ -14,8 +16,14 @@ export const COPILOT_SKILL_FILE = path.join(
   "SKILL.md",
 );
 export const LLM_MEM_MCP_SERVER_NAME = "llm-mem";
+export const LLM_MEM_CONTEXT_MAP_TOOL = "llm_mem_context_map";
+export const LLM_MEM_SNIPPET_TOOL = "llm_mem_snippet";
+export const LLM_MEM_CONTEXT_PACK_TOOL = "llm_mem_context_pack";
+export const LLM_MEM_REMEMBER_TOOL = "llm_mem_remember";
 export const LLM_MEM_INSTRUCTIONS_START = "<!-- llm-mem:start -->";
 export const LLM_MEM_INSTRUCTIONS_END = "<!-- llm-mem:end -->";
+export const LLM_MEM_README_START = "<!-- llm-mem:readme:start -->";
+export const LLM_MEM_README_END = "<!-- llm-mem:readme:end -->";
 export type CopilotGuidanceMode = "skill" | "instructions" | "both" | "none";
 
 export interface CommandSpec {
@@ -69,8 +77,10 @@ export async function installCopilotIntegration(
   const rootPath = path.resolve(options.rootPath);
   const dryRun = options.dryRun === true;
   const guidanceMode = options.guidanceMode ?? "both";
+  const gitIgnoreChange = await installGitIgnore({ rootPath, dryRun });
   const ignoreChange = await installLlmMemIgnore({ rootPath, dryRun });
   const mcpChange = await installMcpConfig({ ...options, rootPath, dryRun });
+  const readmeChange = await installReadmeSection({ rootPath, dryRun });
   const guidanceChanges = await installGuidance({
     rootPath,
     dryRun,
@@ -82,7 +92,13 @@ export async function installCopilotIntegration(
     rootPath,
     dryRun,
     status,
-    changes: [ignoreChange, mcpChange, ...guidanceChanges],
+    changes: [
+      gitIgnoreChange,
+      ignoreChange,
+      mcpChange,
+      readmeChange,
+      ...guidanceChanges,
+    ],
   };
 }
 
@@ -92,6 +108,7 @@ export async function uninstallCopilotIntegration(
   const rootPath = path.resolve(options.rootPath);
   const dryRun = options.dryRun === true;
   const mcpChange = await uninstallMcpConfig({ rootPath, dryRun });
+  const readmeChange = await uninstallReadmeSection({ rootPath, dryRun });
   const skillChange = await uninstallSkill({ rootPath, dryRun });
   const instructionsChange = await uninstallInstructions({ rootPath, dryRun });
   const status = await getCopilotIntegrationStatus({ rootPath });
@@ -100,7 +117,7 @@ export async function uninstallCopilotIntegration(
     rootPath,
     dryRun,
     status,
-    changes: [mcpChange, skillChange, instructionsChange],
+    changes: [mcpChange, readmeChange, skillChange, instructionsChange],
   };
 }
 
@@ -194,6 +211,27 @@ async function installLlmMemIgnore(
   return { path: ignorePath, action: "create", changed: true };
 }
 
+async function installGitIgnore(
+  options: Required<Pick<CopilotIntegrationOptions, "rootPath" | "dryRun">>,
+): Promise<IntegrationFileChange> {
+  const gitIgnorePath = path.join(options.rootPath, GIT_IGNORE_FILE);
+  const existingText = await readTextFileIfExists(gitIgnorePath);
+  if (hasGitIgnoreEntry(existingText ?? "", ".llm-mem")) {
+    return { path: gitIgnorePath, action: "none", changed: false };
+  }
+
+  const nextText = appendGitIgnoreEntry(existingText ?? "", ".llm-mem/");
+  if (options.dryRun !== true) {
+    await writeFile(gitIgnorePath, nextText, "utf8");
+  }
+
+  return {
+    path: gitIgnorePath,
+    action: existingText === undefined ? "create" : "update",
+    changed: true,
+  };
+}
+
 async function installMcpConfig(
   options: Required<Pick<CopilotIntegrationOptions, "rootPath" | "dryRun">> &
     Pick<CopilotIntegrationOptions, "mcpCommand">,
@@ -220,6 +258,23 @@ async function installMcpConfig(
   }
 
   return { path: mcpConfigPath, action, changed };
+}
+
+async function installReadmeSection(
+  options: Required<Pick<CopilotIntegrationOptions, "rootPath" | "dryRun">>,
+): Promise<IntegrationFileChange> {
+  const readmePath = path.join(options.rootPath, README_FILE);
+  const existingText = await readTextFileIfExists(readmePath);
+  const nextText = upsertReadmeBlock(existingText ?? "");
+  const changed = existingText !== nextText;
+  const action =
+    existingText === undefined ? "create" : changed ? "update" : "none";
+
+  if (changed && options.dryRun !== true) {
+    await writeFile(readmePath, nextText, "utf8");
+  }
+
+  return { path: readmePath, action, changed };
 }
 
 async function uninstallMcpConfig(
@@ -253,6 +308,35 @@ async function uninstallMcpConfig(
   }
 
   return { path: mcpConfigPath, action: changed ? "update" : "none", changed };
+}
+
+async function uninstallReadmeSection(
+  options: Required<Pick<CopilotIntegrationOptions, "rootPath" | "dryRun">>,
+): Promise<IntegrationFileChange> {
+  const readmePath = path.join(options.rootPath, README_FILE);
+  const existingText = await readTextFileIfExists(readmePath);
+  if (existingText === undefined) {
+    return { path: readmePath, action: "none", changed: false };
+  }
+
+  const nextText = removeReadmeBlock(existingText);
+  if (nextText === existingText) {
+    return { path: readmePath, action: "none", changed: false };
+  }
+
+  if (options.dryRun !== true) {
+    if (nextText.trim().length === 0) {
+      await rm(readmePath, { force: true });
+    } else {
+      await writeFile(readmePath, nextText, "utf8");
+    }
+  }
+
+  return {
+    path: readmePath,
+    action: nextText.trim().length === 0 ? "delete" : "update",
+    changed: true,
+  };
 }
 
 async function installGuidance(
@@ -426,6 +510,42 @@ function removeInstructionBlock(existingText: string): string {
   return remaining.length === 0 ? "" : `${remaining}\n`;
 }
 
+function upsertReadmeBlock(existingText: string): string {
+  const block = buildReadmeBlock();
+  const start = existingText.indexOf(LLM_MEM_README_START);
+  const end = existingText.indexOf(LLM_MEM_README_END);
+
+  if (start !== -1 && end > start) {
+    const before = existingText.slice(0, start).trimEnd();
+    const after = existingText
+      .slice(end + LLM_MEM_README_END.length)
+      .trimStart();
+    return `${[before, block, after].filter((part) => part.length > 0).join("\n\n")}\n`;
+  }
+
+  if (existingText.trim().length === 0) {
+    return `${block}\n`;
+  }
+
+  return `${existingText.trimEnd()}\n\n${block}\n`;
+}
+
+function removeReadmeBlock(existingText: string): string {
+  const start = existingText.indexOf(LLM_MEM_README_START);
+  const end = existingText.indexOf(LLM_MEM_README_END);
+
+  if (start === -1 || end <= start) {
+    return existingText;
+  }
+
+  const before = existingText.slice(0, start).trimEnd();
+  const after = existingText.slice(end + LLM_MEM_README_END.length).trimStart();
+  const remaining = [before, after]
+    .filter((part) => part.length > 0)
+    .join("\n\n");
+  return remaining.length === 0 ? "" : `${remaining}\n`;
+}
+
 function hasInstructionBlock(input: string): boolean {
   const start = input.indexOf(LLM_MEM_INSTRUCTIONS_START);
   const end = input.indexOf(LLM_MEM_INSTRUCTIONS_END);
@@ -434,7 +554,9 @@ function hasInstructionBlock(input: string): boolean {
 
 function hasSkillContent(input: string): boolean {
   return (
-    input.includes("name: llm-mem") && input.includes("llm_mem.context_pack")
+    input.includes("name: llm-mem") &&
+    (input.includes(LLM_MEM_CONTEXT_PACK_TOOL) ||
+      input.includes("llm_mem.context_pack"))
   );
 }
 
@@ -458,7 +580,7 @@ function buildSkillContent(): string {
       "",
       "## Required first move for non-trivial repo tasks",
       "",
-      "For repo-specific code edits, debugging tasks, refactors, test tasks, explanations, or architecture questions, call `llm_mem.context_map` before reading broad directories or many files.",
+      `For repo-specific code edits, debugging tasks, refactors, test tasks, explanations, or architecture questions, call \`${LLM_MEM_CONTEXT_MAP_TOOL}\` before reading broad directories or many files.`,
       "",
       "Skip llm-mem for trivial one-file questions, pure shell/git questions, or tasks where the user already gave the exact file and no discovery is needed.",
       "",
@@ -478,7 +600,7 @@ function buildSkillContent(): string {
       "",
       "1. Read the returned JSON.",
       "2. Treat `candidates[].sourceRefs`, `matchReasons`, `score`, and `confidence` as the trusted map of likely files and symbols.",
-      "3. Call `llm_mem.snippet` with the best `expansionId` values instead of opening broad files immediately.",
+      `3. Call \`${LLM_MEM_SNIPPET_TOOL}\` with the best \`expansionId\` values instead of opening broad files immediately.`,
       "4. Expand only the snippets needed for the task.",
       "5. Prefer the smallest edit path that satisfies the task and cited evidence.",
       "6. If the map points to tests or validation commands, use those before inventing new validation.",
@@ -495,7 +617,7 @@ function buildSkillContent(): string {
       "",
       "## If the map is insufficient",
       "",
-      "Do not immediately scan the whole repo. First call `llm_mem.context_map` again with a narrower task or constraints, for example:",
+      `Do not immediately scan the whole repo. First call \`${LLM_MEM_CONTEXT_MAP_TOOL}\` again with a narrower task or constraints, for example:`,
       "",
       "```json",
       "{",
@@ -506,11 +628,11 @@ function buildSkillContent(): string {
       "}",
       "```",
       "",
-      "Only use `llm_mem.context_pack` for broad architecture/debug tasks or when a compact map plus snippets is still insufficient.",
+      `Only use \`${LLM_MEM_CONTEXT_PACK_TOOL}\` for broad architecture/debug tasks or when a compact map plus snippets is still insufficient.`,
       "",
       "## Remembering durable facts",
       "",
-      "Use `llm_mem.remember` only for durable project facts, conventions, decisions, or reusable debugging findings. Do not remember transient guesses.",
+      `Use \`${LLM_MEM_REMEMBER_TOOL}\` only for durable project facts, conventions, decisions, or reusable debugging findings. Do not remember transient guesses.`,
       "",
       "Minimum useful shape:",
       "",
@@ -531,7 +653,7 @@ function buildSkillContent(): string {
       "",
       "- Do not run shell `llm-mem context` when the MCP tools are available.",
       "- Do not read broad directories before the first context map.",
-      "- Do not call `llm_mem.context_pack` as the default first move.",
+      `- Do not call \`${LLM_MEM_CONTEXT_PACK_TOOL}\` as the default first move.`,
       "- Do not paste the full context pack to the user unless asked.",
       "- Do not treat uncited memories as stronger than observed files.",
       "- Do not optimize for fewer tokens if it reduces task correctness.",
@@ -578,16 +700,44 @@ function buildInstructionBlock(): string {
     "",
     "Follow this protocol:",
     "",
-    '1. Call the MCP tool `llm_mem.context_map` with `{ "task": "<user task>", "workingDirectory": "<current repo/worktree root>", "maxCandidates": 8 }` before broad file search for repo-specific tasks.',
-    "2. Expand only needed candidates with `llm_mem.snippet` and their `expansionId` values.",
+    `1. Call the MCP tool \`${LLM_MEM_CONTEXT_MAP_TOOL}\` with \`{ "task": "<user task>", "workingDirectory": "<current repo/worktree root>", "maxCandidates": 8 }\` before broad file search for repo-specific tasks.`,
+    `2. Expand only needed candidates with \`${LLM_MEM_SNIPPET_TOOL}\` and their \`expansionId\` values.`,
     "3. Use cited source refs first. Prefer the smallest edit path that satisfies the task and cited constraints.",
-    "4. Use `llm_mem.context_pack` only for broad/debug tasks or when map plus snippets are insufficient.",
-    "5. Use `llm_mem.remember` only for durable source-grounded facts when `repoId` is available; never guess `repoId`.",
+    `4. Use \`${LLM_MEM_CONTEXT_PACK_TOOL}\` only for broad/debug tasks or when map plus snippets are insufficient.`,
+    `5. Use \`${LLM_MEM_REMEMBER_TOOL}\` only for durable source-grounded facts when \`repoId\` is available; never guess \`repoId\`.`,
     "6. Do not run shell `llm-mem context` when the MCP tools are available, and do not paste the full pack to the user unless asked.",
     "7. Skip llm-mem only for trivial single-file edits, pure shell/git questions, or tasks where the user already supplied all necessary context.",
     "",
     "Keep normal Copilot behavior and user intent first; llm-mem is an optimization layer, not a replacement assistant.",
     LLM_MEM_INSTRUCTIONS_END,
+  ].join("\n");
+}
+
+function buildReadmeBlock(): string {
+  return [
+    LLM_MEM_README_START,
+    "## llm-mem",
+    "",
+    "This repository is configured for [llm-mem](https://github.com/aryxenv/llm-mem) Copilot MCP integration. llm-mem keeps its index and run artifacts in the local `.llm-mem/` directory, which is intentionally ignored by Git.",
+    "",
+    "If you do not already have the `llm-mem` CLI installed, clone or open the llm-mem source repo and link the CLI first:",
+    "",
+    "```powershell",
+    "git clone https://github.com/aryxenv/llm-mem.git",
+    "cd llm-mem",
+    "npm install",
+    "npm run build",
+    "npm run link:cli",
+    "```",
+    "",
+    "Then, from this repository, bootstrap your local index and MCP wiring:",
+    "",
+    "```powershell",
+    "llm-mem integrate copilot install",
+    "```",
+    "",
+    "Keep using `copilot` normally after that. The project MCP config, skill, and instructions tell Copilot when to use llm-mem context tools.",
+    LLM_MEM_README_END,
   ].join("\n");
 }
 
@@ -610,6 +760,22 @@ function buildLlmMemIgnoreContent(): string {
     "*.p12",
     "",
   ].join("\n");
+}
+
+function hasGitIgnoreEntry(input: string, entry: string): boolean {
+  return input
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .some((line) => line === entry || line === `${entry}/`);
+}
+
+function appendGitIgnoreEntry(input: string, entry: string): string {
+  if (input.trim().length === 0) {
+    return `${entry}\n`;
+  }
+
+  const separator = input.endsWith("\n") ? "" : "\n";
+  return `${input}${separator}${entry}\n`;
 }
 
 async function readTextFileIfExists(

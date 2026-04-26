@@ -32,6 +32,20 @@ export interface McpServerHandle {
   close(): void;
 }
 
+const TOOL_CONTEXT_MAP = "llm_mem_context_map";
+const TOOL_SNIPPET = "llm_mem_snippet";
+const TOOL_CONTEXT_PACK = "llm_mem_context_pack";
+const TOOL_REMEMBER = "llm_mem_remember";
+const TOOL_WORKTREE_CREATE = "llm_mem_worktree_create";
+
+const LEGACY_TOOL_ALIASES = new Map<string, string>([
+  ["llm_mem.context_map", TOOL_CONTEXT_MAP],
+  ["llm_mem.snippet", TOOL_SNIPPET],
+  ["llm_mem.context_pack", TOOL_CONTEXT_PACK],
+  ["llm_mem.remember", TOOL_REMEMBER],
+  ["llm_mem.worktree.create", TOOL_WORKTREE_CREATE]
+]);
+
 export function startMcpServer(options: McpServerOptions = {}): McpServerHandle {
   const rootPath = path.resolve(options.rootPath ?? process.cwd());
   const databasePath = options.databasePath ?? path.join(rootPath, ".llm-mem", "llm-mem.db");
@@ -98,7 +112,7 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
         return {
           tools: [
             {
-              name: "llm_mem.context_map",
+              name: TOOL_CONTEXT_MAP,
               description: "Return a compact retrieval map for a coding task. Use this before requesting snippets.",
               inputSchema: {
                 type: "object",
@@ -113,7 +127,7 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
               }
             },
             {
-              name: "llm_mem.snippet",
+              name: TOOL_SNIPPET,
               description: "Expand one context_map candidate by expansionId into a cited source snippet.",
               inputSchema: {
                 type: "object",
@@ -127,7 +141,7 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
               }
             },
             {
-              name: "llm_mem.context_pack",
+              name: TOOL_CONTEXT_PACK,
               description: "Build a larger source-grounded context pack for broad/debug tasks. Prefer context_map first.",
               inputSchema: {
                 type: "object",
@@ -142,7 +156,7 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
               }
             },
             {
-              name: "llm_mem.remember",
+              name: TOOL_REMEMBER,
               description: "Store a source-grounded memory.",
               inputSchema: {
                 type: "object",
@@ -157,7 +171,7 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
               }
             },
             {
-              name: "llm_mem.worktree.create",
+              name: TOOL_WORKTREE_CREATE,
               description: "Create a task-bound git worktree lease.",
               inputSchema: {
                 type: "object",
@@ -205,9 +219,10 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
 
   async function callTool(params: unknown): Promise<unknown> {
     const parsed = params as { name?: string; arguments?: unknown };
+    const toolName = normalizeToolName(parsed.name);
 
-    switch (parsed.name) {
-      case "llm_mem.context_pack": {
+    switch (toolName) {
+      case TOOL_CONTEXT_PACK: {
         const args = ContextPackRequestSchema.parse(parsed.arguments);
         const { repoId, workingDirectory } = await resolveRepoContext(args.repoId, args.workingDirectory);
         const pack = await compiler.compile(
@@ -222,7 +237,7 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
         store.recordContextPack(pack);
         return { content: [{ type: "text", text: JSON.stringify(pack, null, 2) }] };
       }
-      case "llm_mem.context_map": {
+      case TOOL_CONTEXT_MAP: {
         const args = ContextMapRequestSchema.parse(parsed.arguments);
         const { repoId, workingDirectory } = await resolveRepoContext(args.repoId, args.workingDirectory);
         const candidates = await store.retrieve(
@@ -241,12 +256,12 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
           candidateCount: candidates.length,
           estimatedTokens: estimateTokens(JSON.stringify(candidates.map(contextMapCandidate))),
           usage:
-            "Use expansionId with llm_mem.snippet for only the files or symbols needed. Avoid llm_mem.context_pack unless this compact map is insufficient.",
+            `Use expansionId with ${TOOL_SNIPPET} for only the files or symbols needed. Avoid ${TOOL_CONTEXT_PACK} unless this compact map is insufficient.`,
           candidates: candidates.map(contextMapCandidate)
         };
         return { content: [{ type: "text", text: JSON.stringify(map, null, 2) }] };
       }
-      case "llm_mem.snippet": {
+      case TOOL_SNIPPET: {
         const args = ContextSnippetRequestSchema.parse(parsed.arguments);
         const { repoId, workingDirectory } = await resolveRepoContext(args.repoId, args.workingDirectory);
         const candidate = store.getCandidateByExpansionId(repoId, args.expansionId, args.maxTokens);
@@ -271,12 +286,12 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
           ]
         };
       }
-      case "llm_mem.remember": {
+      case TOOL_REMEMBER: {
         const args = MemoryWriteSchema.parse(parsed.arguments);
         const memory = store.rememberMemory(args);
         return { content: [{ type: "text", text: JSON.stringify(memory, null, 2) }] };
       }
-      case "llm_mem.worktree.create": {
+      case TOOL_WORKTREE_CREATE: {
         const args = WorktreeCreateSchema.parse(parsed.arguments);
         const lease = await worktrees.createLease(args);
         const repo = await store.upsertRepo(path.resolve(args.repoRoot));
@@ -335,7 +350,7 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
               role: "user",
               content: {
                 type: "text",
-                text: "For non-trivial repo tasks, call llm_mem.context_map first. Expand only necessary candidates with llm_mem.snippet. Use llm_mem.context_pack only when the compact map is insufficient."
+                text: `For non-trivial repo tasks, call ${TOOL_CONTEXT_MAP} first. Expand only necessary candidates with ${TOOL_SNIPPET}. Use ${TOOL_CONTEXT_PACK} only when the compact map is insufficient.`
               }
             }
           ]
@@ -356,6 +371,10 @@ export function startMcpServer(options: McpServerOptions = {}): McpServerHandle 
       default:
         throw new Error(`Unsupported prompt: ${parsed.name ?? "<missing>"}`);
     }
+  }
+
+  function normalizeToolName(name: string | undefined): string | undefined {
+    return name === undefined ? undefined : (LEGACY_TOOL_ALIASES.get(name) ?? name);
   }
 
   function writeResponse(response: unknown): void {

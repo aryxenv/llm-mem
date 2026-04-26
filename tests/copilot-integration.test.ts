@@ -13,8 +13,14 @@ import {
   COPILOT_INSTRUCTIONS_FILE,
   COPILOT_MCP_CONFIG_FILE,
   COPILOT_SKILL_FILE,
+  GIT_IGNORE_FILE,
+  LLM_MEM_CONTEXT_MAP_TOOL,
+  LLM_MEM_CONTEXT_PACK_TOOL,
   LLM_MEM_IGNORE_FILE,
   LLM_MEM_INSTRUCTIONS_START,
+  LLM_MEM_README_START,
+  LLM_MEM_SNIPPET_TOOL,
+  README_FILE,
   defaultMcpCommand,
   installCopilotIntegration,
   uninstallCopilotIntegration,
@@ -81,33 +87,73 @@ describe("Copilot integration", () => {
     expect(llmMemIgnore).toContain(".llm-mem/");
     expect(llmMemIgnore).toContain(".env.*");
 
+    const gitIgnore = await readFile(
+      path.join(repoDir, GIT_IGNORE_FILE),
+      "utf8",
+    );
+    expect(gitIgnore).toBe(".llm-mem/\n");
+
+    const readme = await readFile(path.join(repoDir, README_FILE), "utf8");
+    expect(readme).toContain(LLM_MEM_README_START);
+    expect(readme).toContain("## llm-mem");
+    expect(readme).toContain("https://github.com/aryxenv/llm-mem");
+    expect(readme).toContain("npm run link:cli");
+    expect(readme).toContain("llm-mem integrate copilot install");
+    expect(readme).toContain(".llm-mem/");
+
     const skill = await readFile(
       path.join(repoDir, COPILOT_SKILL_FILE),
       "utf8",
     );
     expect(skill).toContain("name: llm-mem");
-    expect(skill).toContain("llm_mem.context_map");
-    expect(skill).toContain("llm_mem.snippet");
-    expect(skill).toContain("llm_mem.context_pack");
+    expect(skill).toContain(LLM_MEM_CONTEXT_MAP_TOOL);
+    expect(skill).toContain(LLM_MEM_SNIPPET_TOOL);
+    expect(skill).toContain(LLM_MEM_CONTEXT_PACK_TOOL);
     expect(skill).toContain(
       '"workingDirectory": "<current repository or worktree root>"',
     );
     expect(skill).toContain(
-      "Do not call `llm_mem.context_pack` as the default first move.",
+      `Do not call \`${LLM_MEM_CONTEXT_PACK_TOOL}\` as the default first move.`,
     );
     const instructions = await readFile(
       path.join(repoDir, COPILOT_INSTRUCTIONS_FILE),
       "utf8",
     );
-    expect(instructions).toContain("## High-priority llm-mem context optimization");
-    expect(instructions).toContain("Do not wait for the user to invoke `/llm-mem`");
-    expect(instructions).toContain("llm_mem.context_map");
+    expect(instructions).toContain(
+      "## High-priority llm-mem context optimization",
+    );
+    expect(instructions).toContain(
+      "Do not wait for the user to invoke `/llm-mem`",
+    );
+    expect(instructions).toContain(LLM_MEM_CONTEXT_MAP_TOOL);
 
     const secondInstall = await installCopilotIntegration({
       rootPath: repoDir,
       mcpCommand,
     });
     expect(secondInstall.changes.every((change) => !change.changed)).toBe(true);
+  });
+
+  it("appends a generated llm-mem section to an existing readme", async () => {
+    const repoDir = await tempRepo();
+    const readmePath = path.join(repoDir, README_FILE);
+    await writeFile(readmePath, "# Existing project\n\nTeam docs.\n", "utf8");
+
+    const result = await installCopilotIntegration({
+      rootPath: repoDir,
+      mcpCommand,
+    });
+
+    expect(result.changes.find((change) => change.path === readmePath)).toEqual(
+      { path: readmePath, action: "update", changed: true },
+    );
+    const readme = await readFile(readmePath, "utf8");
+    expect(readme).toContain("# Existing project\n\nTeam docs.");
+    expect(readme).toContain(LLM_MEM_README_START);
+    expect(readme).toContain(
+      "git clone https://github.com/aryxenv/llm-mem.git",
+    );
+    expect(readme).toContain("llm-mem integrate copilot install");
   });
 
   it("can install instruction guidance for compatibility", async () => {
@@ -128,9 +174,9 @@ describe("Copilot integration", () => {
       "utf8",
     );
     expect(instructions).toContain(LLM_MEM_INSTRUCTIONS_START);
-    expect(instructions).toContain("llm_mem.context_map");
-    expect(instructions).toContain("llm_mem.snippet");
-    expect(instructions).toContain("llm_mem.context_pack");
+    expect(instructions).toContain(LLM_MEM_CONTEXT_MAP_TOOL);
+    expect(instructions).toContain(LLM_MEM_SNIPPET_TOOL);
+    expect(instructions).toContain(LLM_MEM_CONTEXT_PACK_TOOL);
   });
 
   it("does not overwrite an existing llm-mem ignore file", async () => {
@@ -147,6 +193,42 @@ describe("Copilot integration", () => {
       { path: ignorePath, action: "none", changed: false },
     );
     expect(await readFile(ignorePath, "utf8")).toBe("local-only/\n");
+  });
+
+  it("appends llm-mem local state to an existing gitignore", async () => {
+    const repoDir = await tempRepo();
+    const gitIgnorePath = path.join(repoDir, GIT_IGNORE_FILE);
+    await writeFile(gitIgnorePath, "node_modules/\ndist/", "utf8");
+
+    const result = await installCopilotIntegration({
+      rootPath: repoDir,
+      mcpCommand,
+    });
+
+    expect(
+      result.changes.find((change) => change.path === gitIgnorePath),
+    ).toEqual({ path: gitIgnorePath, action: "update", changed: true });
+    expect(await readFile(gitIgnorePath, "utf8")).toBe(
+      "node_modules/\ndist/\n.llm-mem/\n",
+    );
+  });
+
+  it("does not duplicate an existing llm-mem gitignore entry", async () => {
+    const repoDir = await tempRepo();
+    const gitIgnorePath = path.join(repoDir, GIT_IGNORE_FILE);
+    await writeFile(gitIgnorePath, "node_modules/\n.llm-mem\n", "utf8");
+
+    const result = await installCopilotIntegration({
+      rootPath: repoDir,
+      mcpCommand,
+    });
+
+    expect(
+      result.changes.find((change) => change.path === gitIgnorePath),
+    ).toEqual({ path: gitIgnorePath, action: "none", changed: false });
+    expect(await readFile(gitIgnorePath, "utf8")).toBe(
+      "node_modules/\n.llm-mem\n",
+    );
   });
 
   it("refuses to overwrite an existing custom llm-mem skill", async () => {
@@ -222,7 +304,7 @@ describe("Copilot integration", () => {
       "## Required first move for non-trivial repo tasks",
     );
     expect(upgraded).toContain(
-      "Do not call `llm_mem.context_pack` as the default first move.",
+      `Do not call \`${LLM_MEM_CONTEXT_PACK_TOOL}\` as the default first move.`,
     );
   });
 
@@ -272,6 +354,25 @@ describe("Copilot integration", () => {
     expect(instructions).toBe("Keep tests green.\n");
   });
 
+  it("removes only the generated readme section on uninstall", async () => {
+    const repoDir = await tempRepo();
+    const readmePath = path.join(repoDir, README_FILE);
+    await writeFile(readmePath, "# Existing project\n\nTeam docs.\n", "utf8");
+    await installCopilotIntegration({ rootPath: repoDir, mcpCommand });
+
+    const result = await uninstallCopilotIntegration({
+      rootPath: repoDir,
+      mcpCommand,
+    });
+
+    expect(result.changes.find((change) => change.path === readmePath)).toEqual(
+      { path: readmePath, action: "update", changed: true },
+    );
+    expect(await readFile(readmePath, "utf8")).toBe(
+      "# Existing project\n\nTeam docs.\n",
+    );
+  });
+
   it("supports dry-run install without writing files", async () => {
     const repoDir = await tempRepo();
 
@@ -289,6 +390,9 @@ describe("Copilot integration", () => {
     await expect(
       fileExists(path.join(repoDir, COPILOT_INSTRUCTIONS_FILE)),
     ).resolves.toBe(false);
+    await expect(fileExists(path.join(repoDir, README_FILE))).resolves.toBe(
+      false,
+    );
   });
 
   it("does not infer the MCP command from project-local files", async () => {

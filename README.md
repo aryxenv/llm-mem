@@ -52,11 +52,13 @@ After setup, you keep typing `copilot`; `llm-mem` is available underneath throug
 `llm-mem integrate copilot install`:
 
 1. Initializes and indexes the repository.
-2. Creates `.llm-memignore` if it is missing, so repo-local indexing exclusions are visible and easy to customize.
-3. Adds a project-local `.mcp.json` entry for the `llm-mem` MCP server.
-4. Adds `.github\skills\llm-mem\SKILL.md`, a lean skill with the exact MCP call shape, context-pack usage rules, fallback behavior, and anti-patterns.
-5. Appends a marked high-priority llm-mem section to `.github\copilot-instructions.md`, creating the file if needed and preserving any existing team instructions.
-6. Preserves the existing Copilot CLI flow; no PATH hijacking or replacement `copilot` binary is required.
+2. Creates or appends `.gitignore` with `.llm-mem/`, because the local index and run artifacts should not be committed.
+3. Creates `.llm-memignore` if it is missing, so repo-local indexing exclusions are visible and easy to customize.
+4. Adds a project-local `.mcp.json` entry for the `llm-mem` MCP server.
+5. Appends a marked `llm-mem` section to `README.md`, creating the file if needed, so teammates see the post-clone bootstrap command.
+6. Adds `.github\skills\llm-mem\SKILL.md`, a lean skill with the exact MCP call shape, context-pack usage rules, fallback behavior, and anti-patterns.
+7. Appends a marked high-priority llm-mem section to `.github\copilot-instructions.md`, creating the file if needed and preserving any existing team instructions.
+8. Preserves the existing Copilot CLI flow; no PATH hijacking or replacement `copilot` binary is required.
 
 Inspect or remove the integration:
 
@@ -74,9 +76,9 @@ Most coding-agent token waste comes from repeated discovery. `llm-mem` now attac
 Primary Copilot flow after integration:
 
 1. Start `copilot` normally.
-2. For non-trivial repo tasks, the generated skill tells Copilot to call `llm_mem.context_map`.
-3. Copilot expands only necessary candidates with `llm_mem.snippet`.
-4. Full `llm_mem.context_pack` is reserved for broad/debug tasks where the compact map is insufficient.
+2. For non-trivial repo tasks, the generated skill tells Copilot to call `llm_mem_context_map`.
+3. Copilot expands only necessary candidates with `llm_mem_snippet`.
+4. Full `llm_mem_context_pack` is reserved for broad/debug tasks where the compact map is insufficient.
 
 Advanced/manual full-pack workflow:
 

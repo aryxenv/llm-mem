@@ -10,14 +10,58 @@ import { SQLiteStore } from "../packages/storage/src/index.js";
 const tempDirs: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(
+    tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
+  );
 });
 
 describe("MCP server", () => {
+  it("advertises CAPI-safe tool names", async () => {
+    const repoDir = await mkdtemp(path.join(os.tmpdir(), "llm-mem-mcp-repo-"));
+    tempDirs.push(repoDir);
+    const databasePath = path.join(repoDir, ".llm-mem", "test.db");
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const server = startMcpServer({
+      rootPath: repoDir,
+      databasePath,
+      input,
+      output,
+    });
+    const responsePromise = nextJsonLine(output);
+
+    input.write(
+      `${JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+      })}\n`,
+    );
+
+    const response = (await responsePromise) as {
+      result: { tools: Array<{ name: string }> };
+    };
+    expect(response.result.tools.map((tool) => tool.name)).toEqual([
+      "llm_mem_context_map",
+      "llm_mem_snippet",
+      "llm_mem_context_pack",
+      "llm_mem_remember",
+      "llm_mem_worktree_create",
+    ]);
+    expect(
+      response.result.tools.every((tool) => /^[a-zA-Z0-9_-]+$/.test(tool.name)),
+    ).toBe(true);
+    server.close();
+  });
+
   it("resolves the current repository when context_pack is called without repoId", async () => {
     const repoDir = await mkdtemp(path.join(os.tmpdir(), "llm-mem-mcp-repo-"));
     tempDirs.push(repoDir);
-    await writeFile(path.join(repoDir, "target.ts"), "export const TargetSymbol = 'indexed';\n", "utf8");
+    await writeFile(
+      path.join(repoDir, "target.ts"),
+      "export const TargetSymbol = 'indexed';\n",
+      "utf8",
+    );
     const databasePath = path.join(repoDir, ".llm-mem", "test.db");
     const store = new SQLiteStore({ databasePath });
     store.initialize();
@@ -25,7 +69,12 @@ describe("MCP server", () => {
     store.close();
     const input = new PassThrough();
     const output = new PassThrough();
-    const server = startMcpServer({ rootPath: repoDir, databasePath, input, output });
+    const server = startMcpServer({
+      rootPath: repoDir,
+      databasePath,
+      input,
+      output,
+    });
     const responsePromise = nextJsonLine(output);
 
     input.write(
@@ -34,10 +83,10 @@ describe("MCP server", () => {
         id: 1,
         method: "tools/call",
         params: {
-          name: "llm_mem.context_pack",
-          arguments: { task: "TargetSymbol" }
-        }
-      })}\n`
+          name: "llm_mem_context_pack",
+          arguments: { task: "TargetSymbol" },
+        },
+      })}\n`,
     );
 
     const response = (await responsePromise) as {
@@ -47,7 +96,9 @@ describe("MCP server", () => {
       sections: Array<{ content: string }>;
     };
 
-    expect(pack.sections.some((section) => section.content.includes("TargetSymbol"))).toBe(true);
+    expect(
+      pack.sections.some((section) => section.content.includes("TargetSymbol")),
+    ).toBe(true);
     server.close();
   });
 
@@ -57,7 +108,7 @@ describe("MCP server", () => {
     await writeFile(
       path.join(repoDir, "target.ts"),
       "export class TargetSymbol {\n  run() {\n    return 'indexed';\n  }\n}\n",
-      "utf8"
+      "utf8",
     );
     const databasePath = path.join(repoDir, ".llm-mem", "test.db");
     const store = new SQLiteStore({ databasePath });
@@ -66,7 +117,12 @@ describe("MCP server", () => {
     store.close();
     const input = new PassThrough();
     const output = new PassThrough();
-    const server = startMcpServer({ rootPath: repoDir, databasePath, input, output });
+    const server = startMcpServer({
+      rootPath: repoDir,
+      databasePath,
+      input,
+      output,
+    });
 
     const mapResponsePromise = nextJsonLine(output);
     input.write(
@@ -75,17 +131,21 @@ describe("MCP server", () => {
         id: 1,
         method: "tools/call",
         params: {
-          name: "llm_mem.context_map",
-          arguments: { task: "Explain TargetSymbol", maxCandidates: 4 }
-        }
-      })}\n`
+          name: "llm_mem_context_map",
+          arguments: { task: "Explain TargetSymbol", maxCandidates: 4 },
+        },
+      })}\n`,
     );
 
     const mapResponse = (await mapResponsePromise) as {
       result: { content: Array<{ text: string }> };
     };
     const map = JSON.parse(mapResponse.result.content[0]?.text ?? "{}") as {
-      candidates: Array<{ expansionId?: string; title: string; content?: string }>;
+      candidates: Array<{
+        expansionId?: string;
+        title: string;
+        content?: string;
+      }>;
     };
     const expansionId = map.candidates[0]?.expansionId;
     expect(map.candidates[0]?.title).toContain("target.ts");
@@ -99,16 +159,18 @@ describe("MCP server", () => {
         id: 2,
         method: "tools/call",
         params: {
-          name: "llm_mem.snippet",
-          arguments: { expansionId, maxTokens: 300 }
-        }
-      })}\n`
+          name: "llm_mem_snippet",
+          arguments: { expansionId, maxTokens: 300 },
+        },
+      })}\n`,
     );
 
     const snippetResponse = (await snippetResponsePromise) as {
       result: { content: Array<{ text: string }> };
     };
-    const snippet = JSON.parse(snippetResponse.result.content[0]?.text ?? "{}") as {
+    const snippet = JSON.parse(
+      snippetResponse.result.content[0]?.text ?? "{}",
+    ) as {
       content: string;
       sourceRefs: Array<{ uri: string }>;
     };
@@ -119,10 +181,20 @@ describe("MCP server", () => {
 
   it("uses workingDirectory repo resolution before server root fallback", async () => {
     const rootRepo = await mkdtemp(path.join(os.tmpdir(), "llm-mem-mcp-root-"));
-    const worktreeRepo = await mkdtemp(path.join(os.tmpdir(), "llm-mem-mcp-worktree-"));
+    const worktreeRepo = await mkdtemp(
+      path.join(os.tmpdir(), "llm-mem-mcp-worktree-"),
+    );
     tempDirs.push(rootRepo, worktreeRepo);
-    await writeFile(path.join(rootRepo, "root.ts"), "export const RootOnlySymbol = true;\n", "utf8");
-    await writeFile(path.join(worktreeRepo, "worktree.ts"), "export const WorktreeOnlySymbol = true;\n", "utf8");
+    await writeFile(
+      path.join(rootRepo, "root.ts"),
+      "export const RootOnlySymbol = true;\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(worktreeRepo, "worktree.ts"),
+      "export const WorktreeOnlySymbol = true;\n",
+      "utf8",
+    );
     const databasePath = path.join(rootRepo, ".llm-mem", "test.db");
     const store = new SQLiteStore({ databasePath });
     store.initialize();
@@ -131,7 +203,12 @@ describe("MCP server", () => {
     store.close();
     const input = new PassThrough();
     const output = new PassThrough();
-    const server = startMcpServer({ rootPath: rootRepo, databasePath, input, output });
+    const server = startMcpServer({
+      rootPath: rootRepo,
+      databasePath,
+      input,
+      output,
+    });
     const responsePromise = nextJsonLine(output);
 
     input.write(
@@ -140,10 +217,13 @@ describe("MCP server", () => {
         id: 1,
         method: "tools/call",
         params: {
-          name: "llm_mem.context_map",
-          arguments: { task: "WorktreeOnlySymbol", workingDirectory: worktreeRepo }
-        }
-      })}\n`
+          name: "llm_mem_context_map",
+          arguments: {
+            task: "WorktreeOnlySymbol",
+            workingDirectory: worktreeRepo,
+          },
+        },
+      })}\n`,
     );
 
     const response = (await responsePromise) as {
