@@ -23,12 +23,12 @@ Most coding-agent token waste comes from rediscovering project structure: readin
 
 The intended user experience is install-and-forget: install the `llm-mem` CLI once for your user/machine, opt in each repository explicitly, then keep launching Copilot CLI normally.
 
-| Layer                                                  | Scope             | What it does                                                                   |
-| ------------------------------------------------------ | ----------------- | ------------------------------------------------------------------------------ |
-| `llm-mem` CLI                                          | Global/user-level | Makes the `llm-mem` command available on PATH for any repo.                    |
-| `.llm-mem/` index                                      | Project-specific  | Stores that repo's local SQLite index, context packs, and benchmark artifacts. |
-| `.vscode\mcp.json` + `.github\skills\llm-mem\SKILL.md` | Project-specific  | Opts that repo into Copilot + `llm-mem` integration.                           |
-| `copilot` command                                      | Unchanged         | You still start Copilot normally; no PATH hijack or replacement binary.        |
+| Layer                                           | Scope             | What it does                                                                   |
+| ----------------------------------------------- | ----------------- | ------------------------------------------------------------------------------ |
+| `llm-mem` CLI                                   | Global/user-level | Makes the `llm-mem` command available on PATH for any repo.                    |
+| `.llm-mem/` index                               | Project-specific  | Stores that repo's local SQLite index, context packs, and benchmark artifacts. |
+| `.mcp.json` + `.github\skills\llm-mem\SKILL.md` | Project-specific  | Opts that repo into Copilot + `llm-mem` integration.                           |
+| `copilot` command                               | Unchanged         | You still start Copilot normally; no PATH hijack or replacement binary.        |
 
 Install the CLI once from this source checkout:
 
@@ -45,15 +45,18 @@ llm-mem integrate copilot install
 copilot
 ```
 
-That is the normal flow. You keep typing `copilot`; `llm-mem` is available underneath through MCP and a small project skill.
+That is the normal flow. You do not need to run `llm-mem init` first for Copilot usage; `integrate copilot install` initializes/indexes the repo as part of setup. Use `llm-mem init` by itself only when you want to prepare local llm-mem metadata without installing the Copilot MCP config, project skill, or always-on Copilot instructions.
+
+After setup, you keep typing `copilot`; `llm-mem` is available underneath through MCP, a small project skill, and a high-priority instruction block that tells Copilot to use llm-mem proactively for repo-specific work. You should not need to type `/llm-mem` for normal tasks.
 
 `llm-mem integrate copilot install`:
 
 1. Initializes and indexes the repository.
-2. Adds a project-local `.vscode\mcp.json` entry for the `llm-mem` MCP server.
-3. Adds `.github\skills\llm-mem\SKILL.md`, a lean skill with the exact MCP call shape, context-pack usage rules, fallback behavior, and anti-patterns.
-4. Leaves `.github\copilot-instructions.md` untouched by default so org/team instruction files stay clean.
-5. Preserves the existing Copilot CLI flow; no PATH hijacking or replacement `copilot` binary is required.
+2. Creates `.llm-memignore` if it is missing, so repo-local indexing exclusions are visible and easy to customize.
+3. Adds a project-local `.mcp.json` entry for the `llm-mem` MCP server.
+4. Adds `.github\skills\llm-mem\SKILL.md`, a lean skill with the exact MCP call shape, context-pack usage rules, fallback behavior, and anti-patterns.
+5. Appends a marked high-priority llm-mem section to `.github\copilot-instructions.md`, creating the file if needed and preserving any existing team instructions.
+6. Preserves the existing Copilot CLI flow; no PATH hijacking or replacement `copilot` binary is required.
 
 Inspect or remove the integration:
 
@@ -62,13 +65,7 @@ llm-mem integrate copilot status
 llm-mem integrate copilot uninstall
 ```
 
-Use `--dry-run` to preview file changes without writing, and `--skip-index` if you do not want install to index immediately. If your Copilot environment does not load project skills yet, install a tiny marked block in the instruction file instead:
-
-```powershell
-llm-mem integrate copilot install --guidance instructions
-```
-
-Use `--guidance both` if you want both the clean project skill and the compatibility instruction block. The default is `--guidance skill`.
+Use `--dry-run` to preview file changes without writing, and `--skip-index` if you do not want install to index immediately. By default, install writes both always-on Copilot instructions and the project skill. The `--guidance` flag is only for overriding that default: `instructions` writes only the instruction block, `skill` writes only the project skill, and `none` writes only the MCP config.
 
 ## How this helps in practice
 

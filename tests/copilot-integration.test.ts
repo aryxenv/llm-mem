@@ -1,4 +1,11 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,21 +13,27 @@ import {
   COPILOT_INSTRUCTIONS_FILE,
   COPILOT_MCP_CONFIG_FILE,
   COPILOT_SKILL_FILE,
+  LLM_MEM_IGNORE_FILE,
   LLM_MEM_INSTRUCTIONS_START,
   defaultMcpCommand,
   installCopilotIntegration,
-  uninstallCopilotIntegration
+  uninstallCopilotIntegration,
 } from "../packages/integrations/src/index.js";
 
 const tempDirs: string[] = [];
-const mcpCommand = { command: "llm-mem", args: ["mcp", "stdio", "--root", "."] };
+const mcpCommand = {
+  command: "llm-mem",
+  args: ["mcp", "stdio", "--root", "."],
+};
 
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(
+    tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
+  );
 });
 
 describe("Copilot integration", () => {
-  it("installs MCP config and project skill without replacing existing servers", async () => {
+  it("installs MCP config, project skill, and instructions without replacing existing servers", async () => {
     const repoDir = await tempRepo();
     const mcpPath = path.join(repoDir, COPILOT_MCP_CONFIG_FILE);
     await mkdir(path.dirname(mcpPath), { recursive: true });
@@ -28,55 +41,112 @@ describe("Copilot integration", () => {
       mcpPath,
       `${JSON.stringify(
         {
-          servers: {
-            existing: { type: "stdio", command: "existing-mcp", args: [] }
+          mcpServers: {
+            existing: { type: "stdio", command: "existing-mcp", args: [] },
           },
-          inputs: []
         },
         null,
-        2
+        2,
       )}\n`,
-      "utf8"
+      "utf8",
     );
 
-    const result = await installCopilotIntegration({ rootPath: repoDir, mcpCommand });
+    const result = await installCopilotIntegration({
+      rootPath: repoDir,
+      mcpCommand,
+    });
 
     expect(result.status.installed).toBe(true);
     const mcpConfig = JSON.parse(await readFile(mcpPath, "utf8")) as {
-      servers: Record<string, { type: string; command: string; args: string[] }>;
-      inputs: unknown[];
+      mcpServers: Record<
+        string,
+        { type: string; command: string; args: string[] }
+      >;
     };
-    expect(mcpConfig.servers.existing?.command).toBe("existing-mcp");
-    expect(mcpConfig.servers["llm-mem"]?.type).toBe("stdio");
-    expect(mcpConfig.servers["llm-mem"]?.command).toBe("llm-mem");
-    expect(mcpConfig.servers["llm-mem"]?.args).toEqual(["mcp", "stdio", "--root", "."]);
-    expect(mcpConfig.inputs).toEqual([]);
+    expect(mcpConfig.mcpServers.existing?.command).toBe("existing-mcp");
+    expect(mcpConfig.mcpServers["llm-mem"]?.type).toBe("stdio");
+    expect(mcpConfig.mcpServers["llm-mem"]?.command).toBe("llm-mem");
+    expect(mcpConfig.mcpServers["llm-mem"]?.args).toEqual([
+      "mcp",
+      "stdio",
+      "--root",
+      ".",
+    ]);
 
-    const skill = await readFile(path.join(repoDir, COPILOT_SKILL_FILE), "utf8");
+    const llmMemIgnore = await readFile(
+      path.join(repoDir, LLM_MEM_IGNORE_FILE),
+      "utf8",
+    );
+    expect(llmMemIgnore).toContain("Repo-local llm-mem ignore rules.");
+    expect(llmMemIgnore).toContain(".llm-mem/");
+    expect(llmMemIgnore).toContain(".env.*");
+
+    const skill = await readFile(
+      path.join(repoDir, COPILOT_SKILL_FILE),
+      "utf8",
+    );
     expect(skill).toContain("name: llm-mem");
     expect(skill).toContain("llm_mem.context_map");
     expect(skill).toContain("llm_mem.snippet");
     expect(skill).toContain("llm_mem.context_pack");
-    expect(skill).toContain("\"workingDirectory\": \"<current repository or worktree root>\"");
-    expect(skill).toContain("Do not call `llm_mem.context_pack` as the default first move.");
-    await expect(fileExists(path.join(repoDir, COPILOT_INSTRUCTIONS_FILE))).resolves.toBe(false);
+    expect(skill).toContain(
+      '"workingDirectory": "<current repository or worktree root>"',
+    );
+    expect(skill).toContain(
+      "Do not call `llm_mem.context_pack` as the default first move.",
+    );
+    const instructions = await readFile(
+      path.join(repoDir, COPILOT_INSTRUCTIONS_FILE),
+      "utf8",
+    );
+    expect(instructions).toContain("## High-priority llm-mem context optimization");
+    expect(instructions).toContain("Do not wait for the user to invoke `/llm-mem`");
+    expect(instructions).toContain("llm_mem.context_map");
 
-    const secondInstall = await installCopilotIntegration({ rootPath: repoDir, mcpCommand });
+    const secondInstall = await installCopilotIntegration({
+      rootPath: repoDir,
+      mcpCommand,
+    });
     expect(secondInstall.changes.every((change) => !change.changed)).toBe(true);
   });
 
   it("can install instruction guidance for compatibility", async () => {
     const repoDir = await tempRepo();
 
-    const result = await installCopilotIntegration({ rootPath: repoDir, mcpCommand, guidanceMode: "instructions" });
+    const result = await installCopilotIntegration({
+      rootPath: repoDir,
+      mcpCommand,
+      guidanceMode: "instructions",
+    });
 
     expect(result.status.installed).toBe(true);
-    await expect(fileExists(path.join(repoDir, COPILOT_SKILL_FILE))).resolves.toBe(false);
-    const instructions = await readFile(path.join(repoDir, COPILOT_INSTRUCTIONS_FILE), "utf8");
+    await expect(
+      fileExists(path.join(repoDir, COPILOT_SKILL_FILE)),
+    ).resolves.toBe(false);
+    const instructions = await readFile(
+      path.join(repoDir, COPILOT_INSTRUCTIONS_FILE),
+      "utf8",
+    );
     expect(instructions).toContain(LLM_MEM_INSTRUCTIONS_START);
     expect(instructions).toContain("llm_mem.context_map");
     expect(instructions).toContain("llm_mem.snippet");
     expect(instructions).toContain("llm_mem.context_pack");
+  });
+
+  it("does not overwrite an existing llm-mem ignore file", async () => {
+    const repoDir = await tempRepo();
+    const ignorePath = path.join(repoDir, LLM_MEM_IGNORE_FILE);
+    await writeFile(ignorePath, "local-only/\n", "utf8");
+
+    const result = await installCopilotIntegration({
+      rootPath: repoDir,
+      mcpCommand,
+    });
+
+    expect(result.changes.find((change) => change.path === ignorePath)).toEqual(
+      { path: ignorePath, action: "none", changed: false },
+    );
+    expect(await readFile(ignorePath, "utf8")).toBe("local-only/\n");
   });
 
   it("refuses to overwrite an existing custom llm-mem skill", async () => {
@@ -90,18 +160,24 @@ describe("Copilot integration", () => {
       "",
       "# Custom llm-mem",
       "",
-      "Call `llm_mem.context_pack`, then follow team policy."
+      "Call `llm_mem.context_pack`, then follow team policy.",
     ].join("\n");
     await mkdir(path.dirname(skillPath), { recursive: true });
     await writeFile(skillPath, `${customSkill}\n`, "utf8");
 
-    await expect(installCopilotIntegration({ rootPath: repoDir, mcpCommand })).rejects.toThrow(
-      "Refusing to overwrite user content"
-    );
+    await expect(
+      installCopilotIntegration({ rootPath: repoDir, mcpCommand }),
+    ).rejects.toThrow("Refusing to overwrite user content");
     expect(await readFile(skillPath, "utf8")).toBe(`${customSkill}\n`);
 
-    const uninstallResult = await uninstallCopilotIntegration({ rootPath: repoDir, mcpCommand });
-    expect(uninstallResult.changes.find((change) => change.path === skillPath)?.changed).toBe(false);
+    const uninstallResult = await uninstallCopilotIntegration({
+      rootPath: repoDir,
+      mcpCommand,
+    });
+    expect(
+      uninstallResult.changes.find((change) => change.path === skillPath)
+        ?.changed,
+    ).toBe(false);
     expect(await readFile(skillPath, "utf8")).toBe(`${customSkill}\n`);
   });
 
@@ -128,17 +204,26 @@ describe("Copilot integration", () => {
         "3. If context is insufficient, retrieve a narrower expansion instead of scanning unrelated files.",
         "4. After durable decisions or conventions are discovered, call `llm_mem.remember` with citations.",
         "",
-        "Keep outputs concise and source-grounded. Token savings only count when task quality is preserved."
+        "Keep outputs concise and source-grounded. Token savings only count when task quality is preserved.",
       ].join("\n") + "\n",
-      "utf8"
+      "utf8",
     );
 
-    const result = await installCopilotIntegration({ rootPath: repoDir, mcpCommand });
+    const result = await installCopilotIntegration({
+      rootPath: repoDir,
+      mcpCommand,
+    });
 
-    expect(result.changes.find((change) => change.path === skillPath)?.action).toBe("update");
+    expect(
+      result.changes.find((change) => change.path === skillPath)?.action,
+    ).toBe("update");
     const upgraded = await readFile(skillPath, "utf8");
-    expect(upgraded).toContain("## Required first move for non-trivial repo tasks");
-    expect(upgraded).toContain("Do not call `llm_mem.context_pack` as the default first move.");
+    expect(upgraded).toContain(
+      "## Required first move for non-trivial repo tasks",
+    );
+    expect(upgraded).toContain(
+      "Do not call `llm_mem.context_pack` as the default first move.",
+    );
   });
 
   it("uninstalls only the llm-mem MCP entry, skill, and marked instruction block", async () => {
@@ -149,30 +234,40 @@ describe("Copilot integration", () => {
       mcpPath,
       `${JSON.stringify(
         {
-          servers: {
-            existing: { type: "stdio", command: "existing-mcp", args: [] }
+          mcpServers: {
+            existing: { type: "stdio", command: "existing-mcp", args: [] },
           },
-          inputs: []
         },
         null,
-        2
+        2,
       )}\n`,
-      "utf8"
+      "utf8",
     );
     const instructionsPath = path.join(repoDir, COPILOT_INSTRUCTIONS_FILE);
     await mkdir(path.dirname(instructionsPath), { recursive: true });
     await writeFile(instructionsPath, "Keep tests green.\n", "utf8");
-    await installCopilotIntegration({ rootPath: repoDir, mcpCommand, guidanceMode: "both" });
+    await installCopilotIntegration({
+      rootPath: repoDir,
+      mcpCommand,
+      guidanceMode: "both",
+    });
 
-    const result = await uninstallCopilotIntegration({ rootPath: repoDir, mcpCommand });
+    const result = await uninstallCopilotIntegration({
+      rootPath: repoDir,
+      mcpCommand,
+    });
 
     expect(result.status.installed).toBe(false);
-    const mcpConfig = JSON.parse(await readFile(path.join(repoDir, COPILOT_MCP_CONFIG_FILE), "utf8")) as {
-      servers: Record<string, unknown>;
+    const mcpConfig = JSON.parse(
+      await readFile(path.join(repoDir, COPILOT_MCP_CONFIG_FILE), "utf8"),
+    ) as {
+      mcpServers: Record<string, unknown>;
     };
-    expect(mcpConfig.servers["llm-mem"]).toBeUndefined();
-    expect(mcpConfig.servers.existing).toBeDefined();
-    await expect(fileExists(path.join(repoDir, COPILOT_SKILL_FILE))).resolves.toBe(false);
+    expect(mcpConfig.mcpServers["llm-mem"]).toBeUndefined();
+    expect(mcpConfig.mcpServers.existing).toBeDefined();
+    await expect(
+      fileExists(path.join(repoDir, COPILOT_SKILL_FILE)),
+    ).resolves.toBe(false);
     const instructions = await readFile(instructionsPath, "utf8");
     expect(instructions).toBe("Keep tests green.\n");
   });
@@ -180,22 +275,34 @@ describe("Copilot integration", () => {
   it("supports dry-run install without writing files", async () => {
     const repoDir = await tempRepo();
 
-    const result = await installCopilotIntegration({ rootPath: repoDir, mcpCommand, dryRun: true });
+    const result = await installCopilotIntegration({
+      rootPath: repoDir,
+      mcpCommand,
+      dryRun: true,
+    });
 
     expect(result.status.installed).toBe(false);
     expect(result.changes.every((change) => change.changed)).toBe(true);
-    await expect(fileExists(path.join(repoDir, COPILOT_MCP_CONFIG_FILE))).resolves.toBe(false);
-    await expect(fileExists(path.join(repoDir, COPILOT_INSTRUCTIONS_FILE))).resolves.toBe(false);
+    await expect(
+      fileExists(path.join(repoDir, COPILOT_MCP_CONFIG_FILE)),
+    ).resolves.toBe(false);
+    await expect(
+      fileExists(path.join(repoDir, COPILOT_INSTRUCTIONS_FILE)),
+    ).resolves.toBe(false);
   });
 
   it("does not infer the MCP command from project-local files", async () => {
     const repoDir = await tempRepo();
     await mkdir(path.join(repoDir, "apps", "cli", "dist"), { recursive: true });
-    await writeFile(path.join(repoDir, "apps", "cli", "dist", "index.js"), "throw new Error('not llm-mem');\n", "utf8");
+    await writeFile(
+      path.join(repoDir, "apps", "cli", "dist", "index.js"),
+      "throw new Error('not llm-mem');\n",
+      "utf8",
+    );
 
     expect(defaultMcpCommand(repoDir)).toEqual({
       command: "llm-mem",
-      args: ["mcp", "stdio", "--root", "."]
+      args: ["mcp", "stdio", "--root", "."],
     });
   });
 
@@ -207,14 +314,23 @@ describe("Copilot integration", () => {
 
     await uninstallCopilotIntegration({ rootPath: repoDir, mcpCommand });
 
-    await expect(fileExists(path.join(repoDir, COPILOT_INSTRUCTIONS_FILE))).resolves.toBe(false);
-    await expect(fileExists(path.join(repoDir, COPILOT_MCP_CONFIG_FILE))).resolves.toBe(false);
+    await expect(
+      fileExists(path.join(repoDir, COPILOT_INSTRUCTIONS_FILE)),
+    ).resolves.toBe(false);
+    await expect(
+      fileExists(path.join(repoDir, COPILOT_MCP_CONFIG_FILE)),
+    ).resolves.toBe(false);
+    await expect(
+      fileExists(path.join(repoDir, LLM_MEM_IGNORE_FILE)),
+    ).resolves.toBe(true);
     await expect(fileExists(skillPath)).resolves.toBe(false);
   });
 });
 
 async function tempRepo(): Promise<string> {
-  const repoDir = await mkdtemp(path.join(os.tmpdir(), "llm-mem-copilot-integration-"));
+  const repoDir = await mkdtemp(
+    path.join(os.tmpdir(), "llm-mem-copilot-integration-"),
+  );
   tempDirs.push(repoDir);
   return repoDir;
 }
@@ -232,5 +348,10 @@ async function fileExists(filePath: string): Promise<boolean> {
 }
 
 function isNotFoundError(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ENOENT"
+  );
 }

@@ -296,7 +296,7 @@ integrateCopilotCommand
   .description("Install project-local Copilot MCP configuration and instructions.")
   .option("--root <path>", "Repository root", process.cwd())
   .option("--db <path>", "SQLite database path")
-  .option("--guidance <mode>", "Guidance mode: skill, instructions, both, none", "skill")
+  .option("--guidance <mode>", "Guidance mode: skill, instructions, both, none", "both")
   .option("--use-current-cli", "Generate MCP config with this running CLI path instead of llm-mem from PATH")
   .option("--dry-run", "Show planned changes without writing files or indexing")
   .option("--skip-index", "Do not index the repository during install")
